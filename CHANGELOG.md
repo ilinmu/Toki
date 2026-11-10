@@ -2,6 +2,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
+## [0.1.2] - 2026-11-10
+
+### 修复
+
+- macOS 构建：用 `find` 校验磁盘镜像，兼容 runner 上的 bash 3.2；runner 改用 `macos-latest`。
+
 ## [0.1.1] - 2026-11-10
 
 ### 修复
