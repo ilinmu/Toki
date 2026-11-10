@@ -75,10 +75,22 @@ jobs:
         if: env.CODE == 'true'
         working-directory: app
         run: go tool mygo vet .
+      - name: Restore staticcheck
+        if: env.CODE == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/staticcheck
+          key: ${{ runner.os }}-go-staticcheck-v1
+      - name: Install staticcheck
+        if: env.CODE == 'true'
+        run: |
+          if [ ! -x ~/.local/bin/staticcheck ]; then
+            GOBIN="$HOME/.local/bin" go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+          fi
       - name: Staticcheck
         if: env.CODE == 'true'
         working-directory: app
-        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+        run: ~/.local/bin/staticcheck ./...
       - name: Test
         if: env.CODE == 'true'
         working-directory: app
