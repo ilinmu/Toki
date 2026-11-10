@@ -4,52 +4,45 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
+# A newer push to a pull request cancels the older run; a push to main never
+# cancels, so every commit gets a full run before it can be released.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-  lint:
-    name: lint and secret scan
+  # Docs and screenshot changes do not build anything: one quick job decides.
+  changes:
+    name: changes
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
     steps:
       - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
         with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: app/go.mod
-          cache-dependency-path: app/go.sum
-      - name: Check formatting
-        working-directory: app
-        run: test -z "$(gofmt -l .)"
-      - name: Vet
-        working-directory: app
-        run: go vet ./...
-      - name: Mygo vet
-        working-directory: app
-        run: go tool mygo vet .
-      - name: Staticcheck
-        working-directory: app
-        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
-      - name: Secret scan
-        run: |
-          go install github.com/zricethezav/gitleaks/v8@latest
-          "$(go env GOPATH)/bin/gitleaks" detect --source . --redact --verbose
+          filters: |
+            code:
+              - 'app/**'
+              - '.github/workflows/**'
+              - 'Makefile'
 
-  test:
-    name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+  # Everything that does not care about the operating system runs here, once:
+  # formatting, vet, static analysis, tests. The Go setup and its caches are
+  # paid for a single time instead of once per platform.
+  verify:
+    name: verify (linux)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: app
@@ -59,9 +52,82 @@ jobs:
         with:
           go-version-file: app/go.mod
           cache-dependency-path: app/go.sum
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
       - name: Vet
         run: go vet ./...
+      - name: Mygo vet
+        run: go tool mygo vet .
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - name: Test
         run: go test ./...
         env:
           CGO_ENABLED: "0"
+
+  # The tests that do care about the platform run on pushes to main and on a
+  # manual run, not on every pull request: macOS runners are scarce and slow
+  # to set up, and the code is cross-compiled on every platform by the build
+  # workflow anyway.
+  platform:
+    name: test (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: app/go.sum
+          cache: true
+      - name: Test
+        run: go test ./...
+        env:
+          CGO_ENABLED: "0"
+
+  # The one required check: it always runs, scans for secrets even when only
+  # docs changed, and fails when any job above failed. A skipped job (docs
+  # only, or the platform tests of a pull request) is not a failure.
+  ci:
+    name: CI
+    if: always()
+    needs: [changes, verify, platform]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Restore gitleaks
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/gitleaks
+          key: gitleaks-8.30.1
+      - name: Secret scan
+        run: |
+          if [ ! -x ~/.local/bin/gitleaks ]; then
+            mkdir -p ~/.local/bin
+            curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+              | tar -xz -C ~/.local/bin gitleaks
+          fi
+          ~/.local/bin/gitleaks detect --source . --redact --verbose
+      - name: Summarize
+        run: |
+          echo "changes=${{ needs.changes.result }}"
+          echo "verify=${{ needs.verify.result }}"
+          echo "platform=${{ needs.platform.result }}"
+          for result in "${{ needs.changes.result }}" "${{ needs.verify.result }}" "${{ needs.platform.result }}"; do
+            case "$result" in
+              failure|cancelled) exit 1 ;;
+            esac
+          done
