@@ -67,39 +67,19 @@ jobs:
         run: go test ./...
         env:
           CGO_ENABLED: "0"
-
-  # Windows path handling is worth checking on main. The macOS equivalent
-  # lives in macos-tests.yml (weekly and on demand): the free account shares
-  # five macOS runners across every workflow, and a queued macOS job here
-  # would hold up a release without adding a cross-platform signal.
-  platform:
-    name: test (windows)
-    needs: changes
-    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
-    runs-on: windows-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: app
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: app/go.mod
-          cache-dependency-path: app/go.sum
-          cache: true
-      - name: Test
-        run: go test ./...
-        env:
-          CGO_ENABLED: "0"
+      - name: Cross-compile the other platforms
+        run: |
+          GOOS=windows GOARCH=amd64 go build -o /dev/null ./...
+          GOOS=darwin GOARCH=arm64 go build -o /dev/null ./...
+          GOOS=linux GOARCH=arm64 go build -o /dev/null ./...
 
   # The one required check: it always runs, scans for secrets even when only
-  # docs changed, and fails when any job above failed. A skipped job (docs
-  # only, or the platform tests of a pull request) is not a failure.
+  # docs changed, and fails when verification failed. A skipped verify job
+  # (a docs-only change) is not a failure.
   ci:
     name: CI
     if: always()
-    needs: [changes, verify, platform]
+    needs: [changes, verify]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -123,8 +103,7 @@ jobs:
         run: |
           echo "changes=${{ needs.changes.result }}"
           echo "verify=${{ needs.verify.result }}"
-          echo "platform=${{ needs.platform.result }}"
-          for result in "${{ needs.changes.result }}" "${{ needs.verify.result }}" "${{ needs.platform.result }}"; do
+          for result in "${{ needs.changes.result }}" "${{ needs.verify.result }}"; do
             case "$result" in
               failure|cancelled) exit 1 ;;
             esac

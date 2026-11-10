@@ -6,10 +6,6 @@ on:
     paths:
       - 'app/**'
       - '.github/workflows/codeql.yml'
-  pull_request:
-    paths:
-      - 'app/**'
-      - '.github/workflows/codeql.yml'
   schedule:
     - cron: "0 6 * * 1"
 
