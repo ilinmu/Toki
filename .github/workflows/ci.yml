@@ -51,8 +51,6 @@ jobs:
       CODE: ${{ needs.changes.outputs.code }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
       - name: Guard the filter
         if: needs.changes.result != 'success'
         run: exit 1
