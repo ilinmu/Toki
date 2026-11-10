@@ -16,7 +16,8 @@ permissions:
   contents: read
 
 jobs:
-  # Docs and screenshot changes do not build anything: one quick job decides.
+  # One quick job decides whether a change can affect the build. Docs and
+  # screenshot changes only need the secret scan.
   changes:
     name: changes
     runs-on: ubuntu-latest
@@ -36,52 +37,56 @@ jobs:
               - '.gitleaksignore'
               - 'Makefile'
 
-  # Everything that does not care about the operating system runs here, once:
-  # formatting, vet, static analysis, tests. The Go setup and its caches are
-  # paid for a single time instead of once per platform. The other platforms
-  # are compiled on every tag by Build and tested weekly by Platform tests.
-  verify:
-    name: verify (linux)
+  # The single required check. It always runs, so a docs-only pull request
+  # reports success instead of leaving a pending check. Everything that does
+  # not care about the operating system lives here: one Go setup, one set of
+  # caches, no gate job waiting on other runners.
+  ci:
+    name: CI
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: app
+    env:
+      CODE: ${{ needs.changes.outputs.code }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Guard the filter
+        if: needs.changes.result != 'success'
+        run: exit 1
+
       - uses: actions/setup-go@v7
+        if: env.CODE == 'true'
         with:
           go-version-file: app/go.mod
           cache-dependency-path: app/go.sum
           cache: true
       - name: Check formatting
+        if: env.CODE == 'true'
+        working-directory: app
         run: test -z "$(gofmt -l .)"
       - name: Vet
+        if: env.CODE == 'true'
+        working-directory: app
         run: go vet ./...
       - name: Mygo vet
+        if: env.CODE == 'true'
+        working-directory: app
         run: go tool mygo vet .
       - name: Staticcheck
+        if: env.CODE == 'true'
+        working-directory: app
         run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - name: Test
+        if: env.CODE == 'true'
+        working-directory: app
         run: go test ./...
         env:
           CGO_ENABLED: "0"
 
-  # The one required check: it always runs, scans for secrets even when only
-  # docs changed, and fails when verification failed. A skipped verify job
-  # (a docs-only change) is not a failure.
-  ci:
-    name: CI
-    if: always()
-    needs: [changes, verify]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
+      # Always: a secret must never land in a documentation-only commit.
       - name: Restore gitleaks
         uses: actions/cache@v4
         with:
@@ -95,12 +100,3 @@ jobs:
               | tar -xz -C ~/.local/bin gitleaks
           fi
           ~/.local/bin/gitleaks detect --source . --redact --verbose
-      - name: Summarize
-        run: |
-          echo "changes=${{ needs.changes.result }}"
-          echo "verify=${{ needs.verify.result }}"
-          for result in "${{ needs.changes.result }}" "${{ needs.verify.result }}"; do
-            case "$result" in
-              failure|cancelled) exit 1 ;;
-            esac
-          done
