@@ -3,7 +3,7 @@ package main
 import "github.com/egoist/mygo/ui"
 
 // Preview sizes the cache keeps for the views that show one photo large.
-// CI timing check: a temporary comment.
+// CI timing check: a second push.
 const (
 	previewSmall  = 800
 	previewMedium = 1600
