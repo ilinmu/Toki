@@ -1,0 +1,4 @@
+# False positive from a cache key in an earlier revision of ci.yml:
+# the string looked like a generic API key to gitleaks, but it was only an
+# Actions cache key. The current workflow uses "gitleaks-8.30.1".
+030e8c218697f893a2116d67539ffa33dbb3563a:.github/workflows/ci.yml:generic-api-key:115
