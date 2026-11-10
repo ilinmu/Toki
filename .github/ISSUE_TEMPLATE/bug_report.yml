@@ -1,0 +1,58 @@
+name: Bug report
+description: 报告一个可复现的问题
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请先搜索现有 issue，避免重复。安全问题请走 SECURITY.md，不要在这里公开细节。
+  - type: input
+    id: version
+    attributes:
+      label: Toki 版本
+      description: 设置里或 Release 页面上的版本号
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 系统
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从启动开始，一步一步写
+      placeholder: |
+        1. 导入包含 ... 的文件夹
+        2. 双击 ...
+        3. 看到 ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 有截图或录屏更好
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: 补充信息
+      description: 照片格式/尺寸、库的大小、是否编辑过等
+    validations:
+      required: false

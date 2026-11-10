@@ -1,0 +1,10 @@
+{
+  "name": "Toki",
+  "slug": "toki",
+  "identifier": "dev.linmu.toki",
+  "version": "0.1.0",
+  "copyright": "Copyright © 2026 linmu",
+  "publisher": "linmu",
+  "license": "MIT",
+  "out": "build"
+}

@@ -1,0 +1,107 @@
+name: Build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin/universal
+            args: -sign - -skip-notarize
+            artifacts: |
+              app/build/**/*.dmg
+          - os: ubuntu-latest
+            platform: linux/amd64,linux/arm64
+            args: ""
+            artifacts: |
+              app/build/**/*.tar.gz
+              app/build/**/*.deb
+              app/build/**/PKGBUILD
+          - os: windows-latest
+            platform: windows/amd64
+            args: ""
+            artifacts: |
+              app/build/**/*.exe
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: app/go.sum
+
+      - name: Take the version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const p = "mygo.json";
+            const c = JSON.parse(fs.readFileSync(p, "utf8"));
+            c.version = process.env.VERSION.replace(/^v/, "");
+            fs.writeFileSync(p, JSON.stringify(c, null, 2) + "\n");
+          '
+          grep '"version"' mygo.json
+
+      - name: Build
+        run: go tool mygo build -platform ${{ matrix.platform }} ${{ matrix.args }}
+
+      - name: Verify the macOS disk image
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          shopt -s globstar
+          for dmg in build/**/*.dmg; do
+            hdiutil verify "$dmg"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toki-${{ matrix.os }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint and secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: app/go.sum
+      - name: Check formatting
+        working-directory: app
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        working-directory: app
+        run: go vet ./...
+      - name: Mygo vet
+        working-directory: app
+        run: go tool mygo vet .
+      - name: Staticcheck
+        working-directory: app
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - name: Secret scan
+        run: |
+          go install github.com/gitleaks/gitleaks/v8@latest
+          "$(go env GOPATH)/bin/gitleaks" detect --source . --redact --verbose
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: app/go.sum
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+        env:
+          CGO_ENABLED: "0"
