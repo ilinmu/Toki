@@ -2,6 +2,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
+## [0.1.1] - 2026-11-10
+
+### 修复
+
+- 发布流水线：改用 GitHub 可用的 macOS runner，更新各个 actions，修正密钥扫描工具的安装路径。
+
 ## [0.1.0] - 2026-11-10
 
 首个公开版本。
