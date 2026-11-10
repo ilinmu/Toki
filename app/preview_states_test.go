@@ -108,13 +108,15 @@ func TestPreviewStates(t *testing.T) {
 	a.libScroll.Y = 0
 	confetti := ui.NewTester(a.view, 1180, 760)
 	confetti.Frame()
-	if card, ok := confetti.Access("城市夜景.jpg"); ok {
-		area := card.Bounds
-		a.burstAt(confetti.Now(), rand.New(rand.NewSource(7)),
-			area, area.W-16, 16)
-		confetti.Advance(380 * time.Millisecond)
-		confetti.Frame()
-		save("ui-confetti.png", confetti)
-		a.fetti = nil
+	if len(a.photos) > 1 {
+		if card, ok := confetti.Access(a.photos[1].Name); ok {
+			area := card.Bounds
+			a.burstAt(confetti.Now(), rand.New(rand.NewSource(7)),
+				area, area.W-16, 16)
+			confetti.Advance(380 * time.Millisecond)
+			confetti.Frame()
+			save("ui-confetti.png", confetti)
+			a.fetti = nil
+		}
 	}
 }

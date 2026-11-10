@@ -62,7 +62,7 @@ def main():
     names = sorted(os.listdir(DEMO))
     for i, name in enumerate(names):
         path = os.path.join(DEMO, name)
-        if not os.path.isfile(path):
+        if not os.path.isfile(path) or not name.lower().endswith((".jpg", ".jpeg", ".png")):
             continue
         st = os.stat(path)
         width, height = dimensions(path)
