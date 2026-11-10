@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>時 · Toki — 本地优先的照片库</title>
+<meta name="description" content="Toki（時）是一个纯 Go 编写的本地照片库：原生桌面界面、非破坏性编辑、完全离线，支持 macOS、Linux 与 Windows。">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='20'>時</text></svg>">
+<style>
+  :root {
+    --bg: #0f141b;
+    --panel: #161d26;
+    --panel-2: #1b2430;
+    --line: #2a3543;
+    --text: #eef1f6;
+    --muted: #a8b2c0;
+    --dim: #6d7888;
+    --accent: #5b9bff;
+    --accent-2: #7cb0ff;
+    --radius: 14px;
+    --max: 1120px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-2); }
+  img { max-width: 100%; display: block; }
+  .wrap { width: min(100% - 40px, var(--max)); margin-inline: auto; }
+
+  header {
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: blur(14px);
+    background: rgba(15, 20, 27, .82);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav { display: flex; align-items: center; gap: 24px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 700; letter-spacing: .02em; }
+  .brand .mark {
+    width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+    background: linear-gradient(135deg, #2f6fe4, #5b9bff); color: #fff; font-size: 15px;
+  }
+  .nav nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
+  .nav nav a { color: var(--muted); }
+  .nav nav a:hover { color: var(--text); }
+  .nav .gh {
+    border: 1px solid var(--line); padding: 6px 12px; border-radius: 8px; color: var(--text);
+  }
+
+  .hero { padding: 72px 0 40px; text-align: center; }
+  .hero h1 { font-size: clamp(34px, 5vw, 54px); line-height: 1.15; margin: 0 0 14px; letter-spacing: -.02em; }
+  .hero h1 span { color: var(--accent); }
+  .hero p { color: var(--muted); font-size: clamp(16px, 2vw, 19px); max-width: 720px; margin: 0 auto 26px; }
+  .badges { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 28px; }
+  .badge { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }
+  .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px;
+    border-radius: 10px; font-weight: 600; font-size: 15px; border: 1px solid var(--line);
+    color: var(--text); background: var(--panel);
+  }
+  .btn:hover { color: var(--text); border-color: #3a4758; background: var(--panel-2); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #08121f; }
+  .btn.primary:hover { background: var(--accent-2); border-color: var(--accent-2); color: #08121f; }
+  .shot {
+    margin: 44px auto 0; border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden; background: var(--panel); box-shadow: 0 30px 80px rgba(0,0,0,.45);
+  }
+  .shot img { width: 100%; }
+
+  section { padding: 72px 0; }
+  section h2 { font-size: clamp(24px, 3vw, 32px); margin: 0 0 10px; letter-spacing: -.01em; }
+  section .lead { color: var(--muted); margin: 0 0 34px; max-width: 720px; }
+
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .card h3 { margin: 0 0 8px; font-size: 16px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .card .ico { font-size: 20px; margin-bottom: 12px; }
+
+  .gallery { display: grid; gap: 14px; grid-template-columns: repeat(2, 1fr); }
+  .gallery figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .gallery figcaption { padding: 10px 14px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); }
+  .gallery img { width: 100%; }
+
+  .downloads { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .dl { display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; color: var(--text); }
+  .dl:hover { border-color: #3a4758; color: var(--text); }
+  .dl strong { font-size: 17px; }
+  .dl span { color: var(--muted); font-size: 13.5px; }
+  .note { margin-top: 18px; color: var(--dim); font-size: 13.5px; }
+
+  .stack { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .stack div { border-left: 2px solid var(--accent); padding: 2px 0 2px 14px; }
+  .stack strong { display: block; }
+  .stack span { color: var(--muted); font-size: 14px; }
+
+  footer { border-top: 1px solid var(--line); padding: 34px 0 54px; color: var(--dim); font-size: 14px; }
+  footer .row { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  footer .row span { margin-right: auto; }
+
+  @media (max-width: 760px) {
+    .nav nav { display: none; }
+    .hero { padding-top: 48px; }
+    .gallery { grid-template-columns: 1fr; }
+    section { padding: 56px 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="#top"><span class="mark">時</span>Toki</a>
+    <nav>
+      <a href="#features">特性</a>
+      <a href="#shots">截图</a>
+      <a href="#download">下载</a>
+      <a href="#stack">技术栈</a>
+    </nav>
+    <a class="gh" href="https://github.com/ilinmu/Toki">GitHub</a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <h1>把照片留在<span>自己的电脑</span>里</h1>
+    <p>Toki（時）是一个本地优先的照片库：纯 Go 写的原生桌面应用，整理、查看、编辑、导出都在本机完成。
+       不联网、不上传、没有账号。</p>
+    <div class="badges">
+      <span class="badge">macOS</span>
+      <span class="badge">Linux</span>
+      <span class="badge">Windows</span>
+      <span class="badge">纯 Go · 无 cgo</span>
+      <span class="badge">MIT</span>
+    </div>
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/ilinmu/Toki/releases/latest">下载最新版本</a>
+      <a class="btn" href="#features">看看能做什么</a>
+    </div>
+    <div class="shot">
+      <img src="screenshots/grid.png" alt="Toki 网格视图：按日期分组的照片墙与右侧信息面板">
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>特性</h2>
+      <p class="lead">该有的整理能力都在，界面保持安静。照片的原始文件永远只读——编辑只存在库里。</p>
+      <div class="grid">
+        <div class="card">
+          <div class="ico">▦</div>
+          <h3>三种照片墙</h3>
+          <p>按日期分组的网格、按最矮列排布的瀑布流、每行一张的时间轴。只构建可见卡片，万张照片也顺手。</p>
+        </div>
+        <div class="card">
+          <div class="ico">◎</div>
+          <h3>查看器</h3>
+          <p>深色舞台与胶片条，滚轮以光标为中心缩放（10%–800%）、拖动平移、幻灯片、键盘切换。</p>
+        </div>
+        <div class="card">
+          <div class="ico">✦</div>
+          <h3>整理与搜索</h3>
+          <p>星标、收藏、标签、相册、文件夹与年份；文本 × 星级 × 来源 × 排序 × 筛选的组合搜索。</p>
+        </div>
+        <div class="card">
+          <div class="ico">◐</div>
+          <h3>非破坏性编辑</h3>
+          <p>裁剪、拉直、旋转翻转，以及曝光、对比度、饱和度、色温、暗角；逐张撤销重做，预览与导出共用同一份结果。</p>
+        </div>
+        <div class="card">
+          <div class="ico">↧</div>
+          <h3>导出</h3>
+          <p>8 档尺寸、4 档 JPEG 质量、文件名加序号、水印。原图不动，导出的是带编辑的副本。</p>
+        </div>
+        <div class="card">
+          <div class="ico">◈</div>
+          <h3>元数据与格式</h3>
+          <p>读 EXIF，写 XMP（JPEG 内嵌，其它格式写边车）。JPEG、PNG、GIF（含动画）、BMP、WebP、TIFF。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="shots">
+    <div class="wrap">
+      <h2>截图</h2>
+      <p class="lead">深色与浅色两套主题，默认跟随系统外观。</p>
+      <div class="gallery">
+        <figure><img src="screenshots/masonry.png" alt="瀑布流"><figcaption>瀑布流与日期滑块</figcaption></figure>
+        <figure><img src="screenshots/lightbox.png" alt="查看器"><figcaption>查看器与胶片条</figcaption></figure>
+        <figure><img src="screenshots/oneup.png" alt="单张查看"><figcaption>单张查看与信息面板</figcaption></figure>
+        <figure><img src="screenshots/edit.png" alt="编辑面板"><figcaption>裁剪、拉直与色彩</figcaption></figure>
+        <figure><img src="screenshots/grid-light.png" alt="浅色主题"><figcaption>浅色主题</figcaption></figure>
+        <figure><img src="screenshots/command.png" alt="命令面板"><figcaption>命令面板（⌘⇧K）</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="wrap">
+      <h2>下载</h2>
+      <p class="lead">安装包由 GitHub Actions 在每次打标签时自动构建。</p>
+      <div class="downloads">
+        <a class="dl" data-release="dmg" href="https://github.com/ilinmu/Toki/releases/latest">
+          <strong>macOS</strong>
+          <span>Universal（Apple 芯片与 Intel）· .dmg</span>
+        </a>
+        <a class="dl" data-release="windows" href="https://github.com/ilinmu/Toki/releases/latest">
+          <strong>Windows</strong>
+          <span>64 位 · 安装程序 .exe</span>
+        </a>
+        <a class="dl" data-release="linux" href="https://github.com/ilinmu/Toki/releases/latest">
+          <strong>Linux</strong>
+          <span>amd64 / arm64 · .tar.gz 与 .deb</span>
+        </a>
+      </div>
+      <p class="note">macOS 构建为 ad-hoc 签名、未公证，首次打开需要在「系统设置 › 隐私与安全性」里允许。
+        也可以从源码构建：<code>cd app &amp;&amp; go tool mygo build</code>（需要 Go 1.27+）。</p>
+    </div>
+  </section>
+
+  <section id="stack">
+    <div class="wrap">
+      <h2>技术栈</h2>
+      <p class="lead">一个二进制、一套代码，没有 Electron、Node 或前端构建链。</p>
+      <div class="stack">
+        <div><strong>Go 1.27</strong><span>语言与运行时，标准库为主</span></div>
+        <div><strong>MyGo 0.8</strong><span>原生窗口与 UI，纯 Go、无 cgo</span></div>
+        <div><strong>image / x/image</strong><span>JPEG、PNG、GIF、WebP、TIFF 解码与缩放</span></div>
+        <div><strong>JSON 库</strong><span>library.json 原子保存，无数据库依赖</span></div>
+        <div><strong>GitHub Actions</strong><span>三平台测试与自动发布</span></div>
+        <div><strong>MIT</strong><span>可自由使用、修改与分发</span></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap row">
+    <span>時 · Toki — 本地优先的照片库</span>
+    <a href="https://github.com/ilinmu/Toki">源码</a>
+    <a href="https://github.com/ilinmu/Toki/releases">版本</a>
+    <a href="https://github.com/ilinmu/Toki/blob/main/LICENSE">MIT 许可证</a>
+  </div>
+</footer>
+
+<script>
+  // Point the platform cards at the newest release's asset of that kind.
+  (async () => {
+    const cards = [...document.querySelectorAll('[data-release]')];
+    try {
+      const r = await fetch('https://api.github.com/repos/ilinmu/Toki/releases/latest');
+      if (r.ok) {
+        const rel = await r.json();
+        const find = (re) => rel.assets.find(a => re.test(a.name));
+        for (const card of cards) {
+          const kind = card.dataset.release;
+          const asset =
+            kind === 'dmg' ? find(/\.dmg$/) :
+            kind === 'windows' ? (find(/-setup-.*\.exe$/) || find(/\.exe$/)) :
+            find(/amd64\.tar\.gz$/);
+          if (asset) card.href = asset.browser_download_url;
+        }
+      }
+    } catch (_) {
+      // The release page is the fallback; nothing to do.
+    }
+  })();
+</script>
+</body>
+</html>
