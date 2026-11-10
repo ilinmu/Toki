@@ -26,11 +26,11 @@ A local-first photo library, built as a native desktop app in pure Go.
 
 macOS、Linux、Windows 的安装包在 [Releases](https://github.com/ilinmu/Toki/releases)：
 
-| 平台 | 产物 |
-| --- | --- |
-| macOS | `toki-<版本>-universal.dmg` |
-| Linux | `toki-<版本>-linux-<架构>.tar.gz`、`.deb` |
-| Windows | `toki-setup-<版本>-<架构>.exe` |
+| 平台    | 产物                                      |
+| ------- | ----------------------------------------- |
+| macOS   | `toki-<版本>-universal.dmg`               |
+| Linux   | `toki-<版本>-linux-<架构>.tar.gz`、`.deb` |
+| Windows | `toki-setup-<版本>-<架构>.exe`            |
 
 macOS 构建为 ad-hoc 签名（未公证），首次打开需要在「系统设置 › 隐私与安全性」里允许。
 
@@ -66,31 +66,29 @@ make build   # 当前平台的安装包
 
 ## 键盘
 
-| 键 | 作用 |
-| --- | --- |
-| ⌘K | 聚焦搜索框（输入即筛选，Esc 清空） |
-| ⌘⇧K | 命令面板 |
-| ⇧⌘L | 深色 / 浅色外观 |
-| ⇧⌘I | 显示或隐藏照片信息 |
-| ⌘1 / ⌘2 / ⌘3 | 网格 / 瀑布流 / 时间轴 |
-| ⌘O / ⌘R / ⌘E | 导入文件夹 / 刷新库 / 导出 |
-| ⇧⌘N | 新建相册 |
-| ⌘A | 全选 |
-| F | 收藏当前照片 |
-| 1–5 | 查看器里打星 |
-| ← / → / Esc | 查看器里切换 / 关闭 |
+| 键           | 作用                               |
+| ------------ | ---------------------------------- |
+| ⌘K           | 聚焦搜索框（输入即筛选，Esc 清空） |
+| ⌘⇧K          | 命令面板                           |
+| ⇧⌘L          | 深色 / 浅色外观                    |
+| ⇧⌘I          | 显示或隐藏照片信息                 |
+| ⌘1 / ⌘2 / ⌘3 | 网格 / 瀑布流 / 时间轴             |
+| ⌘O / ⌘R / ⌘E | 导入文件夹 / 刷新库 / 导出         |
+| ⇧⌘N          | 新建相册                           |
+| ⌘A           | 全选                               |
+| F            | 收藏当前照片                       |
+| 1–5          | 查看器里打星                       |
+| ← / → / Esc  | 查看器里切换 / 关闭                |
 
 ## 截图
 
-| | |
-| --- | --- |
+|                                         |                                          |
+| --------------------------------------- | ---------------------------------------- |
 | ![瀑布流](docs/screenshots/masonry.png) | ![查看器](docs/screenshots/lightbox.png) |
-| ![单张查看](docs/screenshots/oneup.png) | ![编辑](docs/screenshots/edit.png) |
+| ![单张查看](docs/screenshots/oneup.png) | ![编辑](docs/screenshots/edit.png)       |
 
 更多在 [`docs/screenshots/`](docs/screenshots/)。
 
 ## 许可
 
-[MIT](LICENSE)。示例照片在 `app/testdata/demo-photos/`，由脚本生成的色块图，可自由使用。
-
-Toki 是独立实现，不包含任何第三方的代码、图标、位图或本地化文案。
+[MIT](LICENSE)。
