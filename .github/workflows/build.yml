@@ -71,8 +71,7 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          shopt -s globstar
-          for dmg in build/**/*.dmg; do
+          find build -name '*.dmg' -print0 | while IFS= read -r -d '' dmg; do
             hdiutil verify "$dmg"
           done
 
