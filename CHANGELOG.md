@@ -2,6 +2,19 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
+## [Unreleased]
+
+### 新增
+
+- 18 张 Unsplash 示例照片（风景、人像、宠物、美食）与 `CREDITS.md`。
+- GitHub Pages 项目主页：特性、截图、三平台下载与技术栈。
+
+### 优化
+
+- CI 压成单个必需检查；PR 连续推送取消旧运行，`main` 不取消；文档改动跳过构建。
+- 静态检查工具改为预构建 + 缓存；CodeQL 只在 Go 改动与每周定时运行；
+  Windows / macOS 测试移出发布门禁，改为每周与按需运行。
+
 ## [0.1.2] - 2026-11-10
 
 ### 修复
