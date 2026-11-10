@@ -38,7 +38,8 @@ jobs:
 
   # Everything that does not care about the operating system runs here, once:
   # formatting, vet, static analysis, tests. The Go setup and its caches are
-  # paid for a single time instead of once per platform.
+  # paid for a single time instead of once per platform. The other platforms
+  # are compiled on every tag by Build and tested weekly by Platform tests.
   verify:
     name: verify (linux)
     needs: changes
@@ -67,11 +68,6 @@ jobs:
         run: go test ./...
         env:
           CGO_ENABLED: "0"
-      - name: Cross-compile the other platforms
-        run: |
-          GOOS=windows GOARCH=amd64 go build -o /dev/null ./...
-          GOOS=darwin GOARCH=arm64 go build -o /dev/null ./...
-          GOOS=linux GOARCH=arm64 go build -o /dev/null ./...
 
   # The one required check: it always runs, scans for secrets even when only
   # docs changed, and fails when verification failed. A skipped verify job
