@@ -66,20 +66,16 @@ jobs:
         env:
           CGO_ENABLED: "0"
 
-  # The tests that do care about the platform run on pushes to main and on a
-  # manual run, not on every pull request: macOS runners are scarce and slow
-  # to set up, and the code is cross-compiled on every platform by the build
-  # workflow anyway.
+  # Windows path handling is worth checking on main. The macOS equivalent
+  # lives in macos-tests.yml (weekly and on demand): the free account shares
+  # five macOS runners across every workflow, and a queued macOS job here
+  # would hold up a release without adding a cross-platform signal.
   platform:
-    name: test (${{ matrix.os }})
+    name: test (windows)
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
     defaults:
       run:
         working-directory: app

@@ -1,0 +1,32 @@
+name: macOS tests
+
+# The free account shares five macOS runners across every workflow, so the
+# macOS test suite runs out of band: weekly and on demand. It never blocks a
+# pull request or a release. The macOS build itself is verified on every tag
+# by the Build workflow.
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: app/go.sum
+          cache: true
+      - name: Test
+        run: go test ./...
+        env:
+          CGO_ENABLED: "0"

@@ -34,7 +34,7 @@ CGO_ENABLED=0 go test ./...
 
 - 一个 PR 做一件事；合并前必须等 **CI** 这一个检查变绿。
   只改文档或截图时，构建与平台测试会跳过，但密钥扫描与汇总检查仍会运行。
-  Windows 与 macOS 的测试在合并到 `main` 时补跑。
+  Windows 测试在合并到 `main` 时补跑；macOS 测试每周以及按需在单独的工作流里跑。
 - 提交信息用祈使句，首行不超过 72 字符，例如 `fix: keep the date rail reachable between ticks`。
   常用前缀：`feat:`、`fix:`、`docs:`、`test:`、`refactor:`、`chore:`。
 - PR 描述写清：改了什么、为什么、怎么验证（命令或截图）。
