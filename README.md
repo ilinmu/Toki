@@ -47,6 +47,19 @@ go tool mygo build    # 打包到 build/
 
 想用示例照片试：`TOKI_SEED="$PWD/testdata/demo-photos" go tool mygo dev`。
 
+## 技术栈
+
+| 层 | 选择 | 说明 |
+| --- | --- | --- |
+| 语言 | Go 1.27+ | 单二进制，`CGO_ENABLED=0`，没有 Electron / Node / 前端运行时 |
+| UI 与窗口 | [MyGo 0.8](https://github.com/egoist/mygo) | 原生控件、自绘标题栏、菜单、文件监视与打包（`.app` / `.dmg` / `.deb` / `.exe`），纯 Go 无 cgo |
+| 图像 | `image/jpeg` / `image/png` / `image/gif`，`golang.org/x/image/{bmp,webp,tiff}` | 解码、方向校正、面积平均缩放、编辑渲染；动画 GIF 按帧合成与播放 |
+| 数据 | JSON + 原子 rename | `library.json`、`settings.json`，无数据库；缩略图为磁盘 JPEG + 内存 LRU |
+| 元数据 | 自写 EXIF / XMP | 解析 JPEG APP1，写 XMP（JPEG 内嵌，其它格式 `.xmp` 边车） |
+| 构建与发布 | GitHub Actions + `go tool mygo build` | 三平台测试、密钥扫描、CodeQL、打标签自动发布 Release |
+| 项目主页 | GitHub Pages | `docs/index.html`，单文件静态页 |
+| 许可 | MIT | 见 [`LICENSE`](LICENSE) |
+
 ## 开发
 
 ```sh
