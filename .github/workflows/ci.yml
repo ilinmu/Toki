@@ -31,7 +31,9 @@ jobs:
           filters: |
             code:
               - 'app/**'
+              - 'bin/**'
               - '.github/workflows/**'
+              - '.gitleaksignore'
               - 'Makefile'
 
   # Everything that does not care about the operating system runs here, once:
