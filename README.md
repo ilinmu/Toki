@@ -6,6 +6,7 @@ A local-first photo library, built as a native desktop app in pure Go.
 [![CI](https://github.com/ilinmu/Toki/actions/workflows/ci.yml/badge.svg)](https://github.com/ilinmu/Toki/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ilinmu/Toki?display_name=tag)](https://github.com/ilinmu/Toki/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Homepage](https://img.shields.io/badge/homepage-ilinmu.github.io%2FToki-5b9bff)](https://ilinmu.github.io/Toki/)
 
 当前版本：**v0.1.5** · [下载](https://github.com/ilinmu/Toki/releases/tag/v0.1.5)
 
