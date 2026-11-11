@@ -79,10 +79,12 @@ go tool mygo vet .
 CGO_ENABLED=0 go test ./...
 ```
 
-截图按外观与状态分组放在 `docs/screenshots/`：
+截图按外观与状态分组放在 `docs/screenshots/`，浅色的带 `-light` 后缀：
 
-- `grid.png` / `grid-narrow.png` / `grid-light.png` — 网格，深色与浅色、宽与窄
-- `masonry.png` / `masonry-light.png` / `masonry-scrolled.png` — 瀑布流与日期滑块
-- `timeline.png`、`oneup.png`、`edit.png` — 时间轴、单张查看、编辑面板
-- `lightbox.png` / `lightbox-zoom.png` / `lightbox-half.png` — 查看器与缩放
-- `command.png`、`multi.png`、`new-album.png`、`confetti.png` — 命令面板、多选、新建相册、收藏彩纸
+- `grid.png` / `grid-narrow.png` / `grid-light.png` / `grid-narrow-light.png` — 网格，深色与浅色、宽与窄
+- `masonry.png` / `masonry-light.png` / `masonry-scrolled.png` / `masonry-scrolled-light.png` — 瀑布流与日期滑块
+- `timeline.png`、`oneup.png`、`edit.png`（及各自的 `-light`）— 时间轴、单张查看、编辑面板
+- `lightbox.png` / `lightbox-zoom.png` / `lightbox-half.png` — 查看器与缩放；舞台在两种外观下都是深色，所以只有一套
+- `command.png`、`multi.png`、`new-album.png`、`confetti.png`、`export.png`、`search.png`（及各自的 `-light`）— 命令面板、多选、新建相册、收藏彩纸、导出、搜索
+
+`make preview` 先渲染深色一套，再用 `TOKI_PREVIEW_THEME=light` 渲染浅色一套（输出 `*-light.png`）。不传这个变量时，预览用库自己的外观设置。

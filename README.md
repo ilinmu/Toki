@@ -1,16 +1,16 @@
 # 時 · Toki
 
 A local-first photo library, built as a native desktop app in pure Go.
-纯 Go 的本地照片库：原生三栏界面、非破坏性编辑、完全离线。
+纯 Go 编写的本地优先照片库：原生界面、非破坏性编辑、完全离线。
 
 [![CI](https://github.com/ilinmu/Toki/actions/workflows/ci.yml/badge.svg)](https://github.com/ilinmu/Toki/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ilinmu/Toki?display_name=tag)](https://github.com/ilinmu/Toki/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Homepage](https://img.shields.io/badge/homepage-ilinmu.github.io%2FToki-5b9bff)](https://ilinmu.github.io/Toki/)
 
-当前版本：**v0.1.5** · [下载](https://github.com/ilinmu/Toki/releases/tag/v0.1.5)
+当前版本：**v0.1.5** · [下载](https://github.com/ilinmu/Toki/releases/tag/v0.1.5) · [项目主页](https://ilinmu.github.io/Toki/)
 
-![网格视图](docs/screenshots/grid.png)
+![网格视图（浅色）](docs/screenshots/grid-light.png)
 
 ## 特性
 
@@ -100,12 +100,20 @@ make build   # 当前平台的安装包
 
 ## 截图
 
-|                                         |                                          |
-| --------------------------------------- | ---------------------------------------- |
-| ![瀑布流](docs/screenshots/masonry.png) | ![查看器](docs/screenshots/lightbox.png) |
-| ![单张查看](docs/screenshots/oneup.png) | ![编辑](docs/screenshots/edit.png)       |
+两套外观都截图在同一份示例库上：浅色在前，深色在后。查看器的舞台在两种外观下都保持深色。
 
-更多在 [`docs/screenshots/`](docs/screenshots/)。
+| 浅色                                   | 深色                                     |
+| -------------------------------------- | ---------------------------------------- |
+| ![网格](docs/screenshots/grid-light.png)   | ![网格（深色）](docs/screenshots/grid.png)   |
+| ![瀑布流](docs/screenshots/masonry-light.png) | ![瀑布流（深色）](docs/screenshots/masonry.png) |
+| ![单张查看](docs/screenshots/oneup-light.png) | ![单张查看（深色）](docs/screenshots/oneup.png) |
+| ![编辑](docs/screenshots/edit-light.png)   | ![编辑（深色）](docs/screenshots/edit.png)   |
+| ![命令面板](docs/screenshots/command-light.png) | ![命令面板（深色）](docs/screenshots/command.png) |
+| ![时间轴](docs/screenshots/timeline-light.png) | ![时间轴（深色）](docs/screenshots/timeline.png) |
+
+![查看器](docs/screenshots/lightbox.png)
+
+更多在 [`docs/screenshots/`](docs/screenshots/)；截图由 `make preview` 两套外观各渲染一次（`TOKI_PREVIEW_THEME=light` 输出 `*-light.png`）。
 
 ## 许可
 
