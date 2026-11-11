@@ -30,6 +30,8 @@ TOKI_SEED="$PWD/testdata/demo-photos" go tool mygo dev   # 首次启动即导入
 | --- | --- |
 | `app.go` | app 状态、窗口骨架、偏好读写、`main()` |
 | `model.go` | `Photo` / `Album` / `EditState` / `Library`，JSON 库与原子保存 |
+| `library_index.go` | 排序快照、按路径查找与侧栏计数，按库变更重建 |
+| `openfile.go` | 从 Finder / 文件管理器打开图片，库外照片单张查看 |
 | `scan.go` / `thumbs.go` | 目录扫描、指纹去重、缩略图缓存与后台工作池 |
 | `imageops.go` / `anim.go` | 解码、方向、缩放、编辑渲染、JPEG 写出；动画 GIF |
 | `exif.go` / `export.go` | EXIF 读、XMP 写、导出管线 |

@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -41,12 +43,31 @@ type railGroup struct {
 	y     float32
 }
 
-// flowModel is the layout of one frame of the library.
+// flowModel is the layout of the library. order indexes cards by their y,
+// so a frame can find the visible cards with a binary search instead of
+// walking every photo. maxH bounds how far above the viewport a card can
+// start and still overlap it.
 type flowModel struct {
 	width, height float32
 	cards         []flowCard
 	headers       []flowHeader
 	groups        []railGroup
+	order         []int
+	maxH          float32
+}
+
+// flowCache and railCache keep the O(n) layout and the O(days) rail geometry
+// out of the per-frame path: they only change when the photos, the width or
+// the arrangement change.
+type flowCache struct {
+	key   string
+	model flowModel
+}
+
+type railCache struct {
+	key    string
+	tops   []float32
+	travel float32
 }
 
 // computeFlow places the photos in columns: a grid of squares under date
@@ -99,22 +120,20 @@ func computeFlow(photos []*Photo, width float32, masonry bool, target float32, s
 			m.height = tallest - cardGap
 		}
 		// The date rail reads the flow by the scroll offset: a date sits where
-		// its first photo does.
-		seen := map[string]bool{}
+		// its first photo does. A map keeps this linear even with thousands of
+		// different days.
+		seen := map[string]int{}
 		for _, card := range m.cards {
 			label := dayLabel(card.p.Taken())
-			if seen[label] {
-				for i := range m.groups {
-					if m.groups[i].label == label {
-						m.groups[i].count++
-					}
-				}
+			if i, ok := seen[label]; ok {
+				m.groups[i].count++
 				continue
 			}
-			seen[label] = true
+			seen[label] = len(m.groups)
 			m.groups = append(m.groups, railGroup{label: label, count: 1, y: card.y})
 		}
-		sortGroupsByY(m.groups)
+		sort.Slice(m.groups, func(i, j int) bool { return m.groups[i].y < m.groups[j].y })
+		m.indexCards()
 		return m
 	}
 
@@ -159,7 +178,50 @@ func computeFlow(photos []*Photo, width float32, masonry bool, target float32, s
 		last := m.cards[n-1]
 		m.height = last.y + last.h
 	}
+	m.indexCards()
 	return m
+}
+
+// indexCards prepares the spatial lookup used by every frame.
+func (m *flowModel) indexCards() {
+	m.order = make([]int, len(m.cards))
+	for i := range m.cards {
+		m.order[i] = i
+		if m.cards[i].h > m.maxH {
+			m.maxH = m.cards[i].h
+		}
+	}
+	sort.Slice(m.order, func(i, j int) bool {
+		return m.cards[m.order[i]].y < m.cards[m.order[j]].y
+	})
+}
+
+// firstVisible is the first card that can overlap the top of a viewport.
+func (m *flowModel) firstVisible(top float32) int {
+	return sort.Search(len(m.order), func(i int) bool {
+		return m.cards[m.order[i]].y >= top-m.maxH
+	})
+}
+
+// firstHeader is the first date heading that can overlap the viewport.
+func (m *flowModel) firstHeader(top float32) int {
+	return sort.Search(len(m.headers), func(i int) bool {
+		return m.headers[i].y+groupHeadHeight >= top
+	})
+}
+
+// flowFor returns the layout of the current photos, rebuilding it only when
+// the photos, the arrangement, the card size or the width changes.
+func (a *app) flowFor(innerW float32) *flowModel {
+	key := fmt.Sprintf("%d|%d|%d|%t|%d", a.photoRev, a.layout,
+		int(innerW), a.set.ShowNames, int(a.thumbTarget()))
+	if a.flowCache != nil && a.flowCache.key == key {
+		return &a.flowCache.model
+	}
+	m := computeFlow(a.photos, innerW, a.layout == 1,
+		a.thumbTarget(), a.set.ShowNames)
+	a.flowCache = &flowCache{key: key, model: m}
+	return &a.flowCache.model
 }
 
 // clampRatio is a photo's width over its height, kept from making a column
@@ -176,15 +238,6 @@ func clampRatio(p *Photo) float32 {
 		return 2.2
 	}
 	return r
-}
-
-// sortGroupsByY orders the rail's dates by where they start in the flow.
-func sortGroupsByY(groups []railGroup) {
-	for i := 1; i < len(groups); i++ {
-		for j := i; j > 0 && groups[j].y < groups[j-1].y; j-- {
-			groups[j], groups[j-1] = groups[j-1], groups[j]
-		}
-	}
 }
 
 // dayLabel names the day a photo was taken, as the prototype's headings do.
@@ -234,8 +287,10 @@ func (a *app) libraryView(c *ui.Context) {
 	if a.layout == 1 {
 		// The date rail takes its own 24px at the right of the masonry.
 		innerW -= 24
+	} else {
+		a.railDrag = false
 	}
-	model := computeFlow(a.photos, innerW, a.layout == 1, a.thumbTarget(), a.set.ShowNames)
+	model := a.flowFor(innerW)
 
 	ui.Column(c).Grow(1).Background(p.stage).Children(func() {
 		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
@@ -249,17 +304,23 @@ func (a *app) libraryView(c *ui.Context) {
 					}
 					scrollY := a.libScroll.Y
 					viewport := winH
+					top, bottom := scrollY-200, scrollY+viewport
 					ui.Box(c).Width(model.width).Height(model.height).Ref(&a.flowRef).Children(func() {
 						if a.layout == 0 {
-							for _, hd := range model.headers {
-								if hd.y > scrollY+viewport || hd.y+groupHeadHeight < scrollY-200 {
-									continue
+							for i := model.firstHeader(top); i < len(model.headers); i++ {
+								hd := model.headers[i]
+								if hd.y > bottom {
+									break
 								}
 								a.groupHeading(c, hd, model.width)
 							}
 						}
-						for _, card := range model.cards {
-							if card.y > scrollY+viewport || card.y+card.h < scrollY-200 {
+						for k := model.firstVisible(top); k < len(model.order); k++ {
+							card := model.cards[model.order[k]]
+							if card.y > bottom {
+								break
+							}
+							if card.y+card.h < top {
 								continue
 							}
 							a.photoCard(c, card)
@@ -270,7 +331,7 @@ func (a *app) libraryView(c *ui.Context) {
 			// The date rail belongs to the masonry, as the design has it: a
 			// single continuous flow is what it can read.
 			if a.layout == 1 && len(model.groups) > 1 {
-				a.dateRail(c, model.groups, winH)
+				a.dateRail(c, model.groups, winH, a.flowCache.key)
 			}
 		})
 	})
@@ -626,11 +687,11 @@ func (a *app) emptyLibrary(c *ui.Context) {
 	})
 }
 
-// dateRail is the slider on the right edge that reads the flow by date: the
-// handle follows the scroll, and a tick jumps to the day it stands for. The
-// dates sit at the scroll offset that brings their first photo to the top, so
-// the rail matches the flow at every window size.
-func (a *app) dateRail(c *ui.Context, groups []railGroup, winH float32) {
+// dateRail is the slider on the right edge that reads the flow by date. The
+// handle can be dragged, a tick jumps to its day, and the wheel over the rail
+// scrolls the flow. The handle's centre stays on the tick of the current
+// scroll position, so the two never move in different directions.
+func (a *app) dateRail(c *ui.Context, groups []railGroup, winH float32, flowKey string) {
 	p := a.paletteNow()
 	railH := winH * 0.56
 	if railH > 520 {
@@ -656,7 +717,6 @@ func (a *app) dateRail(c *ui.Context, groups []railGroup, winH float32) {
 		maxScroll = 1
 	}
 	travel := railH - 8
-	thumbTravel := railH - thumbH
 	scrollY := clamp(float64(a.libScroll.Y), 0, float64(maxScroll))
 
 	// The y of a day inside the content, as the scroll offset that shows it.
@@ -664,52 +724,61 @@ func (a *app) dateRail(c *ui.Context, groups []railGroup, winH float32) {
 		return clamp32((flowTop+groupY)/maxScroll, 0, 1) * travel
 	}
 
-	active := 0
-	for i, g := range groups {
-		if flowTop+g.y <= float32(scrollY)+8 {
-			active = i
+	// Tick positions only change with the layout and the window, not with the
+	// scroll: build them once per geometry instead of once per frame.
+	key := fmt.Sprintf("%s|%d|%d|%d|%d", flowKey,
+		int(flowTop), int(maxScroll), int(railH), len(groups))
+	if a.railCache == nil || a.railCache.key != key {
+		tops := make([]float32, len(groups))
+		gap := clamp32(travel/float32(max(len(groups)-1, 1)), 2, 8)
+		for i := range groups {
+			tops[i] = 4 + topOf(groups[i].y)
+			if i > 0 && tops[i] < tops[i-1]+gap {
+				tops[i] = tops[i-1] + gap
+			}
 		}
+		if last := tops[len(tops)-1]; last > railH-4 {
+			k := travel / (last - 4)
+			for i := range tops {
+				tops[i] = 4 + (tops[i]-4)*k
+			}
+		}
+		a.railCache = &railCache{key: key, tops: tops, travel: travel}
 	}
-	thumbTop := float32(scrollY/float64(maxScroll)) * thumbTravel
+	tops := a.railCache.tops
 
-	// Where each date's tick sits on the rail, before drawing anything. Two
-	// dates can start in the same row of the masonry, so the rail spaces
-	// them at least a few pixels apart; a long library squeezes them back
-	// into the rail.
-	tops := make([]float32, len(groups))
-	gap := clamp32((railH-8)/float32(max(len(groups)-1, 1)), 2, 8)
-	for i := range groups {
-		tops[i] = 4 + topOf(groups[i].y)
-		if i > 0 && tops[i] < tops[i-1]+gap {
-			tops[i] = tops[i-1] + gap
-		}
+	// The active date is found by a binary search over the days, and the handle
+	// is centred on the same fraction of the track as the active tick.
+	target := float32(scrollY) + 8 - flowTop
+	active := sort.Search(len(groups), func(i int) bool { return groups[i].y > target }) - 1
+	if active < 0 {
+		active = 0
 	}
-	if last := tops[len(tops)-1]; last > railH-4 {
-		k := (railH - 8) / (last - 4)
-		for i := range tops {
-			tops[i] = 4 + (tops[i]-4)*k
+	frac := clamp32(float32(scrollY)/maxScroll, 0, 1)
+	thumbTop := clamp32(frac*travel-thumbH/2, 0, railH-thumbH)
+
+	nearest := func(y float32) int {
+		i := sort.Search(len(tops), func(i int) bool { return tops[i] >= y })
+		if i <= 0 {
+			return 0
 		}
+		if i >= len(tops) {
+			return len(tops) - 1
+		}
+		if y-tops[i-1] <= tops[i]-y {
+			return i - 1
+		}
+		return i
+	}
+	setScroll := func(y float32) {
+		// Set the offset directly: a zero-duration ScrollTo does not move the
+		// container, and a smooth one would fight the drag.
+		a.libScroll.Y = clamp32(y, 0, maxScroll)
 	}
 
 	ui.Column(c).Width(24).Shrink(0).Justify(ui.Center).Children(func() {
-		// The rail takes the pointer itself: a click goes to the date whose
-		// tick is nearest, so the whole track is a target and no date can be
-		// missed between two ticks.
-		nearest := func(y float32) int {
-			best, bestD := 0, float32(1e9)
-			for i := range tops {
-				d := y - tops[i]
-				if d < 0 {
-					d = -d
-				}
-				if d < bestD {
-					best, bestD = i, d
-				}
-			}
-			return best
-		}
 		rail := ui.Box(c).Width(24).Height(railH).
-			Label("时间轴").Description("按日期跳到照片")
+			Label("时间轴").Description("按日期跳到照片，或拖动手柄")
 		hovered := -1
 		if rail.Hovered() || rail.FocusWithin() {
 			if _, y, ok := rail.PointerPosition(); ok {
@@ -717,13 +786,43 @@ func (a *app) dateRail(c *ui.Context, groups []railGroup, winH float32) {
 			}
 		}
 		rail = rail.HandleInput(func(ev ui.InputEvent) bool {
-			if ev.Kind != ui.InputPointerDown || ev.Button != 0 {
-				return false
+			switch ev.Kind {
+			case ui.InputPointerDown:
+				if ev.Button != 0 {
+					return false
+				}
+				// Pressing the handle starts a drag; it must not jump to a tick.
+				if ev.Y >= thumbTop && ev.Y <= thumbTop+thumbH {
+					a.railDrag = true
+					a.railGrabY = ev.Y - (thumbTop + thumbH/2)
+					return true
+				}
+				i := nearest(ev.Y)
+				setScroll(flowTop + groups[i].y)
+				return true
+			case ui.InputPointerMove:
+				if !a.railDrag {
+					return false
+				}
+				// The handle stays under the pointer: down the rail means down
+				// the content, in the same direction as the wheel.
+				f := clamp32((ev.Y-a.railGrabY)/travel, 0, 1)
+				setScroll(f * maxScroll)
+				return true
+			case ui.InputPointerUp:
+				if !a.railDrag {
+					return false
+				}
+				a.railDrag = false
+				return true
+			case ui.InputScroll:
+				if math.Abs(float64(ev.DY)) < 0.01 {
+					return false
+				}
+				setScroll(a.libScroll.Y + ev.DY*6)
+				return true
 			}
-			i := nearest(ev.Y)
-			a.libScroll.ScrollTo(0, flowTop+groups[i].y, ui.Smooth)
-			c.Invalidate()
-			return true
+			return false
 		})
 		rail.Children(func() {
 			ui.Box(c).Absolute().Left(11).Top(4).Width(2).Height(railH - 8).
@@ -741,8 +840,12 @@ func (a *app) dateRail(c *ui.Context, groups []railGroup, winH float32) {
 				}
 			}
 			// The handle is drawn last, over the date it sits on.
-			ui.Box(c).Absolute().Left(4).Top(thumbTop).Size(16, thumbH).Radius(8).
-				Border(1, p.railBorder).Background(p.railThumb)
+			thumb := ui.Box(c).Absolute().Left(4).Top(thumbTop).Size(16, thumbH).Radius(8).
+				Border(1, p.railBorder).Background(p.railThumb).
+				Label("滚动手柄").Description("拖动以滚动照片")
+			if a.railDrag {
+				thumb.Border(2, p.accent)
+			}
 		})
 		// Resting on the rail names the date under the pointer.
 		ui.TooltipBase(c, rail, func(tip ui.Element) {
@@ -772,67 +875,103 @@ func clamp32(v, lo, hi float32) float32 {
 }
 
 // timelineView is the one-column timeline, newest first, with the month over
-// the first photo of each month.
+// the first photo of each month. Only the rows in sight are built: a spacer
+// gives the scroll container its full height.
 func (a *app) timelineView(c *ui.Context) {
 	p := a.paletteNow()
-	if len(a.photos) == 0 {
+	n := len(a.photos)
+	if n == 0 {
 		a.emptyLibrary(c)
 		return
 	}
+	const rowH float32 = 64
+	const rowStep float32 = rowH + 8
+	rowsH := float32(n)*rowStep - 8
+	winW, _ := c.Size()
+	contentW := winW - sidebarWidth - 1
+	if a.inspectorOpen {
+		contentW -= inspectorWidth + 1
+	}
+	if contentW < 200 {
+		contentW = 200
+	}
+	rowsW := contentW - flowPaddingX*2
+
+	// The rows box's committed position tells us which part of the timeline is
+	// on screen, whatever the height of the header above it is.
+	rowsBox := c.Resolve(a.timelineRef).Bounds()
+	scrollBox := c.Resolve(a.timelineScrollRef).Bounds()
+	top, bottom := float32(0), float32(900)
+	if rowsBox.H > 0 && scrollBox.H > 0 {
+		top = clamp32(scrollBox.Y-rowsBox.Y, 0, rowsH)
+		bottom = top + scrollBox.H
+	}
+	first := int(top/rowStep) - 1
+	if first < 0 {
+		first = 0
+	}
+	last := int(bottom/rowStep) + 2
+	if last > n {
+		last = n
+	}
+
 	ui.Column(c).Grow(1).Background(p.stage).Children(func() {
-		ui.Scroll(c).Grow(1).Children(func() {
+		ui.Scroll(c).Grow(1).TrackScroll(&a.timelineScroll).Ref(&a.timelineScrollRef).Children(func() {
 			ui.Column(c).Padding(24, flowPaddingX).Gap(8).Children(func() {
 				a.viewHeader(c)
-				for i, ph := range a.photos {
-					ph := ph
-					startOfMonth := i == 0 || monthLabel(a.photos[i-1]) != monthLabel(ph)
-					row := ui.ButtonBase(c).FillWidth().Height(64).Padding(8, 12).Gap(12).Radius(6).
-						AlignItems(ui.Center).Label(ph.Name)
-					if a.sel.Has(ph.Path) {
-						row = row.Background(p.selected)
-					} else if row.Hovered() {
-						row = row.Background(p.hover)
-					}
-					row.Children(func() {
-						if startOfMonth {
-							ui.Text(c, monthLabel(ph)).FontSize(13).Bold().Width(96)
-						} else {
-							ui.Spacer(c).Width(96)
+				ui.Box(c).Width(rowsW).Height(rowsH).Ref(&a.timelineRef).Children(func() {
+					for i := first; i < last; i++ {
+						ph := a.photos[i]
+						startOfMonth := i == 0 || monthLabel(a.photos[i-1]) != monthLabel(ph)
+						row := ui.ButtonBase(c).Absolute().Left(0).Top(float32(i)*rowStep).
+							Width(rowsW).Height(rowH).Padding(8, 12).Gap(12).Radius(6).
+							AlignItems(ui.Center).Label(ph.Name)
+						if a.sel.Has(ph.Path) {
+							row = row.Background(p.selected)
+						} else if row.Hovered() {
+							row = row.Background(p.hover)
 						}
-						if bmp, ready := a.thumbs.Bitmap(ph.Path, ph.ModUnix, 160, ph.Edit); ready {
-							ui.Image(c, bmp).Size(56, 56).Fit(ui.Cover).Radius(4)
-						} else {
-							ui.Box(c).Size(56, 56).Radius(4).Background(p.imageMat)
-						}
-						ui.Column(c).Gap(2).Grow(1).Children(func() {
-							ui.Text(c, ph.Name).FontSize(13).SingleLine()
-							sub := ph.Taken().Format("2006-01-02 15:04")
-							if len(ph.Tags) > 0 {
-								sub += " · " + strings.Join(ph.Tags, ", ")
+						row.Children(func() {
+							if startOfMonth {
+								ui.Text(c, monthLabel(ph)).FontSize(13).Bold().Width(96)
+							} else {
+								ui.Spacer(c).Width(96)
 							}
-							ui.Text(c, sub).FontSize(11).TextColor(p.textSecondary).SingleLine()
-						})
-						if ph.Favorite {
-							glyph(c, icons.heartFilled, 14, p.favorite)
-						}
-						if ph.Stars > 0 {
-							ui.Row(c).Gap(1).Children(func() {
-								for n := 0; n < ph.Stars; n++ {
-									glyph(c, icons.starFilled, 11, p.rating)
+							if bmp, ready := a.thumbs.Bitmap(ph.Path, ph.ModUnix, 160, ph.Edit); ready {
+								ui.Image(c, bmp).Size(56, 56).Fit(ui.Cover).Radius(4)
+							} else {
+								ui.Box(c).Size(56, 56).Radius(4).Background(p.imageMat)
+							}
+							ui.Column(c).Gap(2).Grow(1).Children(func() {
+								ui.Text(c, ph.Name).FontSize(13).SingleLine()
+								sub := ph.Taken().Format("2006-01-02 15:04")
+								if len(ph.Tags) > 0 {
+									sub += " · " + strings.Join(ph.Tags, ", ")
 								}
+								ui.Text(c, sub).FontSize(11).TextColor(p.textSecondary).SingleLine()
 							})
+							if ph.Favorite {
+								glyph(c, icons.heartFilled, 14, p.favorite)
+							}
+							if ph.Stars > 0 {
+								ui.Row(c).Gap(1).Children(func() {
+									for s := 0; s < ph.Stars; s++ {
+										glyph(c, icons.starFilled, 11, p.rating)
+									}
+								})
+							}
+						})
+						if row.Clicked() {
+							a.choosePhoto(ph.Path, false)
 						}
-					})
-					if row.Clicked() {
-						a.choosePhoto(ph.Path, false)
+						if row.DoubleClicked() {
+							a.sel.Clear()
+							a.sel.Add(ph.Path)
+							a.current = ph.Path
+							a.openViewer(ph.Path)
+						}
 					}
-					if row.DoubleClicked() {
-						a.sel.Clear()
-						a.sel.Add(ph.Path)
-						a.current = ph.Path
-						a.openViewer(ph.Path)
-					}
-				}
+				})
 			})
 		})
 	})

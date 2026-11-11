@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -83,6 +84,25 @@ type app struct {
 	photos   []*Photo
 	viewKey  string
 
+	// Derived data. A frame only reads these: the library index and the flow
+	// are rebuilt when their inputs change, not once per redraw.
+	dataRev    atomic.Uint64
+	libData    *libraryData
+	photoRev   uint64
+	photoIndex map[string]int
+	flowCache  *flowCache
+	railCache  *railCache
+
+	// The date rail's drag, the timeline's and the filmstrip's scroll.
+	railDrag          bool
+	railGrabY         float32
+	timelineScroll    ui.ScrollState
+	timelineScrollRef ui.Handle
+	timelineRef       ui.Handle
+	filmScroll        ui.ScrollState
+	filmScrollRef     ui.Handle
+	filmBoxRef        ui.Handle
+
 	// The lightbox: one photo over a dark mask, zoomed with the wheel.
 	lightbox      bool
 	lightZoom     float64
@@ -134,6 +154,14 @@ type app struct {
 	tagOpen      bool
 	tagText      string
 	form         exportForm
+
+	// A photo opened from the file manager but not in the library.
+	external    *Photo
+	openMu      sync.Mutex
+	pendingOpen []string
+
+	// A precise (high-resolution) wheel accumulates deltas until one notch.
+	wheelDelta float64
 
 	// Work in progress.
 	scanning bool
@@ -242,11 +270,12 @@ func (a *app) saveSettings() {
 	os.WriteFile(a.settingsPath(), b, 0o644)
 }
 
-// save writes the library.
+// save writes the library and invalidates every derived view of it.
 func (a *app) save() {
 	if err := a.lib.Save(); err != nil {
 		a.status = "保存失败: " + err.Error()
 	}
+	a.dataRev.Add(1)
 }
 
 // winReady says whether the window exists and the app loop runs, so work
@@ -305,7 +334,10 @@ func (a *app) rebuild() {
 		return
 	}
 	a.viewKey = key
-	all := a.lib.Snapshot()
+	// A rebuild may follow an in-place change to a photo (a new star, a new
+	// tag), so the library index has to be taken again before it is read.
+	a.dataRev.Add(1)
+	all := a.library().all
 	out := make([]*Photo, 0, len(all))
 	for _, p := range all {
 		if !a.inNav(p) || !a.matches(p) || !a.inFilter(p) {
@@ -327,10 +359,16 @@ func (a *app) rebuild() {
 		sort.SliceStable(out, func(i, j int) bool { return out[i].TakenUnix < out[j].TakenUnix })
 	}
 	a.photos = out
-	// A photo no longer shown cannot stay chosen.
-	for _, p := range all {
-		if a.sel.Has(p.Path) && !containsPhoto(out, p.Path) {
-			a.sel.Remove(p.Path)
+	a.photoRev++
+	a.photoIndex = make(map[string]int, len(out))
+	for i, p := range out {
+		a.photoIndex[p.Path] = i
+	}
+	// A photo no longer shown cannot stay chosen. Only the chosen paths are
+	// walked, not the whole library.
+	for path := range a.sel.All() {
+		if _, ok := a.photoIndex[path]; !ok {
+			a.sel.Remove(path)
 		}
 	}
 }
@@ -403,14 +441,27 @@ func containsPhoto(photos []*Photo, path string) bool {
 	return false
 }
 
-// selected returns the photos the user chose, in the order they show.
+// selected returns the photos the user chose, in the order they show. It
+// walks the choice, not the whole library: selecting two of ten thousand
+// photos must not build ten thousand elements.
 func (a *app) selected() []*Photo {
-	var out []*Photo
-	for _, p := range a.photos {
-		if a.sel.Has(p.Path) {
+	n := a.sel.Len()
+	if n == 0 {
+		return nil
+	}
+	data := a.library()
+	out := make([]*Photo, 0, n)
+	for path := range a.sel.All() {
+		if _, ok := a.photoIndex[path]; !ok {
+			continue
+		}
+		if p := data.byPath[path]; p != nil {
 			out = append(out, p)
 		}
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return a.photoIndex[out[i].Path] < a.photoIndex[out[j].Path]
+	})
 	return out
 }
 
@@ -420,7 +471,7 @@ func (a *app) target() []*Photo {
 	if sel := a.selected(); len(sel) > 0 {
 		return sel
 	}
-	if p := a.lib.Get(a.current); p != nil {
+	if p := a.shownPhoto(); p != nil {
 		return []*Photo{p}
 	}
 	return nil
@@ -429,6 +480,7 @@ func (a *app) target() []*Photo {
 // view builds the window: the title bar over the three panels.
 func (a *app) view(c *ui.Context) {
 	a.rebuild()
+	a.drainOpenedFiles()
 	a.applyTheme(c)
 	if a.lightbox {
 		a.viewerShortcuts(c)
@@ -556,6 +608,7 @@ func starString(n int) string {
 
 func main() {
 	a := newApp()
+	a.registerOpenFiles()
 	mygo.App.WhenReady(func() {
 		uiReady.Store(true)
 		mygo.App.SetMenu(a.menu())

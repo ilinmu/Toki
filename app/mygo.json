@@ -6,5 +6,43 @@
   "copyright": "Copyright © 2026 linmu",
   "publisher": "linmu",
   "license": "MIT",
-  "out": "build"
+  "out": "build",
+  "fileAssociations": [
+    {
+      "ext": ["jpg", "jpeg", "jpe", "jfif"],
+      "name": "JPEG Image",
+      "mimeType": "image/jpeg",
+      "role": "Viewer"
+    },
+    {
+      "ext": ["png"],
+      "name": "PNG Image",
+      "mimeType": "image/png",
+      "role": "Viewer"
+    },
+    {
+      "ext": ["gif"],
+      "name": "GIF Image",
+      "mimeType": "image/gif",
+      "role": "Viewer"
+    },
+    {
+      "ext": ["bmp"],
+      "name": "BMP Image",
+      "mimeType": "image/bmp",
+      "role": "Viewer"
+    },
+    {
+      "ext": ["webp"],
+      "name": "WebP Image",
+      "mimeType": "image/webp",
+      "role": "Viewer"
+    },
+    {
+      "ext": ["tif", "tiff"],
+      "name": "TIFF Image",
+      "mimeType": "image/tiff",
+      "role": "Viewer"
+    }
+  ]
 }

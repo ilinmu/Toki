@@ -47,17 +47,15 @@ func (a *app) prefetchNeighbors(p *Photo, want int) {
 
 // neighbor is the photo delta places from p in the photos shown, or nil.
 func (a *app) neighbor(p *Photo, delta int) *Photo {
-	for i, q := range a.photos {
-		if q.Path != p.Path {
-			continue
-		}
-		j := i + delta
-		if j < 0 || j >= len(a.photos) {
-			return nil
-		}
-		return a.photos[j]
+	i, ok := a.photoIndex[p.Path]
+	if !ok {
+		return nil
 	}
-	return nil
+	j := i + delta
+	if j < 0 || j >= len(a.photos) {
+		return nil
+	}
+	return a.photos[j]
 }
 
 // previewFor returns the size to make for an area at a zoom: enough pixels

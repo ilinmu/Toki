@@ -40,6 +40,12 @@ func (a *app) openLightbox(path string) {
 	a.lightDragging = false
 	a.lightMoved = false
 	a.slideshow = false
+	a.wheelDelta = 0
+	if i, ok := a.photoIndex[path]; ok {
+		a.filmScroll.X = max(0, float32(i*72-300))
+	} else {
+		a.filmScroll.X = 0
+	}
 	if a.win == nil || a.win.IsFullScreen() {
 		return
 	}
@@ -58,6 +64,11 @@ func (a *app) closeLightbox() {
 	a.lightZoom = 1
 	a.lightX, a.lightY = 0, 0
 	a.slideshow = false
+	a.wheelDelta = 0
+	if a.external != nil && a.current == a.external.Path {
+		a.external = nil
+		a.current = ""
+	}
 	if !a.lightWasFull || a.win == nil {
 		a.lightWasFull = false
 		return
@@ -94,7 +105,7 @@ func (a *app) viewerShortcuts(c *ui.Context) {
 		a.lightX, a.lightY = 0, 0
 	}
 	if c.Shortcut(0, ui.KeyF) {
-		if p := a.lib.Get(a.current); p != nil {
+		if p := a.shownPhoto(); p != nil {
 			p.Favorite = !p.Favorite
 			a.save()
 			a.viewKey = ""
@@ -111,7 +122,7 @@ func (a *app) viewerShortcuts(c *ui.Context) {
 		n := n
 		key := []ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5}[n-1]
 		if c.Shortcut(0, key) {
-			if p := a.lib.Get(a.current); p != nil {
+			if p := a.shownPhoto(); p != nil {
 				if p.Stars == n {
 					p.Stars = 0
 				} else {
@@ -126,7 +137,7 @@ func (a *app) viewerShortcuts(c *ui.Context) {
 // viewViewer builds the stage, the chrome above and below it and the
 // filmstrip.
 func (a *app) viewViewer(c *ui.Context) {
-	p := a.lib.Get(a.current)
+	p := a.shownPhoto()
 	if p == nil {
 		a.lightbox = false
 		return
@@ -343,12 +354,38 @@ func (a *app) viewerFooter(c *ui.Context, p *Photo, areaW, areaH float32) {
 			ui.Text(c, sub).FontSize(11).TextColor(viewerMuted).SingleLine()
 		})
 
-		ui.ScrollHorizontal(c).Grow(1).Children(func() {
-			ui.Row(c).Gap(8).Padding(8, 0).Children(func() {
-				for _, ph := range a.photos {
-					ph := ph
+		// The filmstrip is a virtual row: a spacer gives the scroll container
+		// its width, and only the thumbnails in sight are built. A library of
+		// ten thousand photos no longer creates ten thousand buttons per frame.
+		photos := a.photos
+		if a.external != nil && p.Path == a.external.Path {
+			photos = []*Photo{a.external}
+		}
+		const filmStep float32 = 72 // 64px thumbnail + 8px gap
+		totalW := float32(len(photos))*filmStep - 8
+		if totalW < 1 {
+			totalW = 64
+		}
+		viewport := c.Resolve(a.filmScrollRef).Bounds().W
+		if viewport <= 0 {
+			viewport = 800 // the first frame has no committed bounds yet
+		}
+		left := a.filmScroll.X
+		first := int(left/filmStep) - 1
+		if first < 0 {
+			first = 0
+		}
+		last := int((left+viewport)/filmStep) + 2
+		if last > len(photos) {
+			last = len(photos)
+		}
+		ui.ScrollHorizontal(c).Grow(1).TrackScroll(&a.filmScroll).Ref(&a.filmScrollRef).Children(func() {
+			ui.Box(c).Width(totalW).Height(64).Ref(&a.filmBoxRef).Children(func() {
+				for i := first; i < last; i++ {
+					ph := photos[i]
 					active := ph.Path == p.Path
-					thumb := ui.ButtonBase(c).Size(64, 64).Padding(0).Radius(4).Clip().
+					thumb := ui.ButtonBase(c).Absolute().Left(float32(i)*filmStep).Top(0).
+						Size(64, 64).Padding(0).Radius(4).Clip().
 						Border(1, ui.Transparent).Background(ui.RGB(16, 21, 28)).
 						Label(ph.Name).Tooltip(ph.Name)
 					if active {
@@ -364,6 +401,7 @@ func (a *app) viewerFooter(c *ui.Context, p *Photo, areaW, areaH float32) {
 					if thumb.Clicked() {
 						a.current = ph.Path
 						a.lightZoom, a.lightX, a.lightY = 1, 0, 0
+						a.wheelDelta = 0
 					}
 				}
 			})
@@ -401,14 +439,45 @@ func (a *app) lightboxInput(ev ui.InputEvent, areaW, areaH float32) bool {
 		a.zoomAround(float64(ev.Scale), ev.X, ev.Y, areaW, areaH)
 		return true
 	case ui.InputScroll:
-		if ev.Precise {
-			return false // a touchpad's scroll is not a zoom
+		// A mouse wheel is a notch (non-precise). Some high-resolution mice
+		// report precise pixel deltas, so those are accumulated until one
+		// notch's worth; a touchpad's momentum events are left alone. Ctrl/⌘
+		// with the wheel zooms at once, as viewers usually do.
+		if ev.Momentum {
+			return false
 		}
-		if ev.DY < 0 {
-			a.zoomAround(1.15, ev.X, ev.Y, areaW, areaH)
-		} else if ev.DY > 0 {
-			a.zoomAround(1/1.15, ev.X, ev.Y, areaW, areaH)
+		dy := float64(ev.DY)
+		if math.Abs(dy) < 0.1 || math.Abs(float64(ev.DX)) > math.Abs(dy)*1.5 {
+			return false
 		}
+		if !ev.Precise {
+			a.wheelDelta = 0
+			if dy < 0 {
+				a.zoomAround(1.15, ev.X, ev.Y, areaW, areaH)
+			} else {
+				a.zoomAround(1/1.15, ev.X, ev.Y, areaW, areaH)
+			}
+			return true
+		}
+		a.wheelDelta += dy
+		mods := ev.Mods & (ui.Cmd | ui.Ctrl)
+		threshold := 24.0
+		if mods != 0 {
+			threshold = 1
+		}
+		if math.Abs(a.wheelDelta) < threshold {
+			return true
+		}
+		d := a.wheelDelta
+		a.wheelDelta = 0
+		factor := math.Exp(-d / 120)
+		if factor > 1.35 {
+			factor = 1.35
+		}
+		if factor < 1/1.35 {
+			factor = 1 / 1.35
+		}
+		a.zoomAround(factor, ev.X, ev.Y, areaW, areaH)
 		return true
 	case ui.InputPointerDown:
 		if ev.Button != 0 {
@@ -536,10 +605,11 @@ func (a *app) photoBitmap(c *ui.Context, p *Photo, want int) (*ui.Bitmap, bool) 
 
 // lightboxCounter says which photo this is among the ones the library shows.
 func (a *app) lightboxCounter() string {
-	for i, p := range a.photos {
-		if p.Path == a.current {
-			return fmt.Sprintf("%d / %d", i+1, len(a.photos))
-		}
+	if i, ok := a.photoIndex[a.current]; ok {
+		return fmt.Sprintf("%d / %d", i+1, len(a.photos))
+	}
+	if a.external != nil && a.external.Path == a.current {
+		return "1 / 1"
 	}
 	return ""
 }
@@ -585,15 +655,14 @@ func (a *app) step(delta int) {
 	if len(a.photos) == 0 {
 		return
 	}
-	idx := 0
-	for i, p := range a.photos {
-		if p.Path == a.current {
-			idx = i
-			break
-		}
+	idx, ok := a.photoIndex[a.current]
+	if !ok {
+		return
 	}
 	idx = (idx + delta + len(a.photos)) % len(a.photos)
 	a.current = a.photos[idx].Path
+	a.lightZoom, a.lightX, a.lightY = 1, 0, 0
+	a.wheelDelta = 0
 	a.draftFor = ""
 }
 

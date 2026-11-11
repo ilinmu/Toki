@@ -36,13 +36,15 @@ type thumbCache struct {
 	limit   int
 }
 
-// thumbJob asks for one thumbnail to be made.
+// thumbJob asks for one thumbnail: either to make it from the original, or
+// only to load the one already on disk into a bitmap.
 type thumbJob struct {
-	key  string
-	path string
-	mod  int64
-	size int
-	edit EditState
+	key      string
+	path     string
+	mod      int64
+	size     int
+	edit     EditState
+	loadOnly bool
 }
 
 // latestThumb is the last bitmap a photo got, whatever size it was made at:
@@ -85,7 +87,9 @@ func thumbKey(path string, mod, size int64, st EditState) string {
 }
 
 // Bitmap returns the thumbnail of a photo at size pixels, and whether it is
-// ready. The caller draws a placeholder when it is not.
+// ready. The caller draws a placeholder when it is not. Nothing is read or
+// decoded on the calling (UI) thread: a thumbnail on disk is loaded by a
+// worker, so scrolling never blocks on file I/O or JPEG decoding.
 func (t *thumbCache) Bitmap(path string, mod int64, size int, st EditState) (*ui.Bitmap, bool) {
 	key := thumbKey(path, mod, int64(size), st)
 	t.mu.Lock()
@@ -99,23 +103,29 @@ func (t *thumbCache) Bitmap(path string, mod int64, size int, st EditState) (*ui
 	if waiting {
 		return nil, false
 	}
-	// A thumbnail made earlier is on disk: read it here, where the bitmap may
-	// be made. It is small, so this stays quick; a view that wants a large
-	// one asks with Request instead.
-	if data, err := os.ReadFile(t.file(key)); err == nil {
-		if b, err := ui.DecodeBitmap(data); err == nil {
-			t.store(key, b)
-			t.remember(path, mod, size, b)
-			return b, true
+	// A windowless run, as in the screenshot tests, reads the disk here: there
+	// is no main loop to hand the bitmap to.
+	if !uiReady.Load() {
+		if data, err := os.ReadFile(t.file(key)); err == nil {
+			if b, err := ui.DecodeBitmap(data); err == nil {
+				t.store(key, b)
+				t.remember(path, mod, size, b)
+				return b, true
+			}
 		}
+		return nil, false
 	}
-	t.request(path, mod, size, st, key)
+	job := thumbJob{key: key, path: path, mod: mod, size: size, edit: st}
+	if t.onDisk(key) {
+		job.loadOnly = true
+	}
+	t.requestJob(job)
 	return nil, false
 }
 
-// Request asks for a thumbnail without reading the disk or decoding anything
-// on the calling thread: a large preview, which the window shows once the
-// worker delivers it.
+// Request asks for a thumbnail without reading or decoding anything on the
+// calling thread: a large preview, which the window shows once the worker
+// delivers it.
 func (t *thumbCache) Request(path string, mod int64, size int, st EditState) {
 	key := thumbKey(path, mod, int64(size), st)
 	t.mu.Lock()
@@ -124,29 +134,39 @@ func (t *thumbCache) Request(path string, mod int64, size int, st EditState) {
 	if inMemory {
 		return
 	}
-	t.request(path, mod, size, st, key)
+	job := thumbJob{key: key, path: path, mod: mod, size: size, edit: st}
+	if t.onDisk(key) {
+		job.loadOnly = true
+	}
+	t.requestJob(job)
 }
 
-// request queues a thumbnail job unless the same one is queued already.
-func (t *thumbCache) request(path string, mod int64, size int, st EditState, key string) {
+// onDisk reports whether a thumbnail of this key was made before.
+func (t *thumbCache) onDisk(key string) bool {
+	_, err := os.Stat(t.file(key))
+	return err == nil
+}
+
+// requestJob queues a job unless the same one is queued already.
+func (t *thumbCache) requestJob(job thumbJob) {
 	if !uiReady.Load() {
 		// No window, as in tests: nothing would show the result, and a
 		// worker writing into a temporary folder outlives the test.
 		return
 	}
 	t.mu.Lock()
-	if t.pending[key] {
+	if t.pending[job.key] {
 		t.mu.Unlock()
 		return
 	}
-	t.pending[key] = true
+	t.pending[job.key] = true
 	t.mu.Unlock()
 	select {
-	case t.jobs <- thumbJob{key: key, path: path, mod: mod, size: size, edit: st}:
+	case t.jobs <- job:
 	default:
 		// The queue is full: let a later frame ask again.
 		t.mu.Lock()
-		delete(t.pending, key)
+		delete(t.pending, job.key)
 		t.mu.Unlock()
 	}
 }
@@ -213,13 +233,37 @@ func (t *thumbCache) work() {
 	}
 }
 
-// make decodes a photo, applies its edit, scales it and stores the result.
+// make loads one thumbnail. A thumbnail already on disk is only read and
+// decoded; one that is missing is decoded from the original, edited, scaled
+// and written back. The bitmap itself is made on the main thread, as the
+// window requires.
 func (t *thumbCache) make(job thumbJob) {
 	defer func() {
 		t.mu.Lock()
 		delete(t.pending, job.key)
 		t.mu.Unlock()
 	}()
+	if job.loadOnly {
+		if !uiReady.Load() {
+			return
+		}
+		data, err := os.ReadFile(t.file(job.key))
+		if err != nil {
+			return
+		}
+		mygo.RunOnMain(func() {
+			bmp, err := ui.DecodeBitmap(data)
+			if err != nil {
+				return
+			}
+			t.store(job.key, bmp)
+			t.remember(job.path, job.mod, job.size, bmp)
+			if t.notify != nil {
+				t.notify()
+			}
+		})
+		return
+	}
 	img, err := decodeImage(job.path)
 	if err != nil {
 		return

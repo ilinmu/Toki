@@ -60,8 +60,8 @@ func (a *app) inspectorSection(c *ui.Context, title string, fn func()) {
 // the library holds.
 func (a *app) inspectorOverview(c *ui.Context) {
 	p := a.paletteNow()
-	all := a.lib.Snapshot()
-	counts := libraryCounts(all)
+	d := a.library()
+	counts := d.counts
 	ui.Column(c).Gap(8).PaddingY(12).Children(func() {
 		ui.Box(c).Size(44, 44).Radius(10).Border(1, p.borderSubtle).Background(p.elevated).
 			Center().Children(func() { glyph(c, icons.info, 20, p.textSecondary) })
@@ -76,8 +76,8 @@ func (a *app) inspectorOverview(c *ui.Context) {
 		a.overviewRow(c, "照片", itoa(counts.all))
 		a.overviewRow(c, "收藏", itoa(counts.favorites))
 		a.overviewRow(c, "已编辑", itoa(counts.edited))
-		a.overviewRow(c, "相册", itoa(len(a.lib.AlbumList())))
-		a.overviewRow(c, "标签", itoa(len(a.lib.AllTags())))
+		a.overviewRow(c, "相册", itoa(len(d.albums)))
+		a.overviewRow(c, "标签", itoa(len(d.tags)))
 		a.overviewRow(c, "占用空间", humanSize(counts.bytes))
 	})
 }
@@ -199,14 +199,14 @@ func (a *app) inspectorPhoto(c *ui.Context, ph *Photo) {
 	})
 
 	a.inspectorSection(c, "所属相册", func() {
-		albums := a.lib.AlbumList()
+		albums := a.library().albums
 		if len(albums) == 0 {
 			ui.Text(c, "还没有相册").FontSize(11).TextColor(p.textDisabled)
 		} else {
 			ui.Row(c).Gap(6).Children(func() {
 				names := make([]string, 0, len(albums))
 				for _, al := range albums {
-					names = append(names, al.Name)
+					names = append(names, al.name)
 				}
 				if a.albumPick == "" {
 					a.albumPick = names[0]
@@ -216,11 +216,11 @@ func (a *app) inspectorPhoto(c *ui.Context, ph *Photo) {
 				}
 				if a.actionButton(c, "加入", icons.plus).Clicked() {
 					for _, al := range albums {
-						if al.Name == a.albumPick {
-							a.lib.AddToAlbum(al.ID, []*Photo{ph})
+						if al.name == a.albumPick {
+							a.lib.AddToAlbum(al.id, []*Photo{ph})
 							a.save()
 							a.viewKey = ""
-							a.status = "已加入相册「" + al.Name + "」"
+							a.status = "已加入相册「" + al.name + "」"
 						}
 					}
 				}
@@ -257,9 +257,9 @@ func (a *app) inspectorPhoto(c *ui.Context, ph *Photo) {
 // albumNames lists the albums a photo is in, for the metadata grid.
 func (a *app) albumNames(ph *Photo) string {
 	var names []string
-	for _, al := range a.lib.AlbumList() {
-		if ph.InAlbum(al.ID) {
-			names = append(names, al.Name)
+	for _, al := range a.library().albums {
+		if ph.InAlbum(al.id) {
+			names = append(names, al.name)
 		}
 	}
 	if len(names) == 0 {

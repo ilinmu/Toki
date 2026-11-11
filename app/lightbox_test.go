@@ -500,3 +500,31 @@ func TestToolbarCarriesThumbSizeAndSort(t *testing.T) {
 		t.Fatalf("the settings lost their own options: %q", settings.Texts())
 	}
 }
+
+// TestAPreciseWheelZoomsTheLightbox is the high-resolution mouse wheel: its
+// events are precise, but are still wheel notches to zoom with.
+func TestAPreciseWheelZoomsTheLightbox(t *testing.T) {
+	a := testApp(t)
+	dir := t.TempDir()
+	path := writePNG(t, dir, "precise.png", 200, 100, 90)
+	a.lib.AddFolder(dir)
+	a.scanFolder(dir, nil)
+	a.rebuild()
+	a.openLightbox(path)
+
+	view := ui.NewTester(a.view, 1000, 700)
+	view.Frame()
+	base := a.lightZoom
+	// Tester.Scroll sends a precise (high-resolution) scroll.
+	view.Scroll(500, 350, 0, -30)
+	view.Frame()
+	if a.lightZoom <= base {
+		t.Fatalf("a precise wheel did not zoom in: %v", a.lightZoom)
+	}
+	first := a.lightZoom
+	view.Scroll(500, 350, 0, 30)
+	view.Frame()
+	if a.lightZoom >= first {
+		t.Fatalf("a precise wheel did not zoom out: %v then %v", first, a.lightZoom)
+	}
+}

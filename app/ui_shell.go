@@ -3,9 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -147,11 +145,12 @@ func (a *app) windowSubtitle() string {
 }
 
 // sidebar is the column of places: the library, the albums, the tags, the
-// folders and the years, over how much room the library takes.
+// folders and the years. Every count comes from the cached library index, so
+// a redraw is O(number of places), not O(number of photos).
 func (a *app) sidebar(c *ui.Context) {
 	p := a.paletteNow()
-	all := a.lib.Snapshot()
-	counts := libraryCounts(all)
+	d := a.library()
+	counts := d.counts
 	ui.Column(c).Width(sidebarWidth).Shrink(0).Background(p.chrome).Children(func() {
 		ui.Scroll(c).Grow(1).Children(func() {
 			ui.Column(c).Padding(16, 8).Gap(8).Children(func() {
@@ -187,58 +186,41 @@ func (a *app) sidebar(c *ui.Context) {
 					}
 				})
 				ui.Column(c).Gap(2).Children(func() {
-					albums := a.lib.AlbumList()
-					if len(albums) == 0 {
+					if len(d.albums) == 0 {
 						ui.Text(c, "还没有相册").FontSize(12).TextColor(p.textDisabled).Padding(0, 8)
 					}
-					for i, al := range albums {
+					for _, al := range d.albums {
 						al := al
-						count := 0
-						for _, ph := range all {
-							if ph.InAlbum(al.ID) {
-								count++
-							}
-						}
-						tint := al.Tint
-						if tint == "" {
-							tint = albumTintNames[i%len(albumTintNames)]
-						}
-						on := a.nav == "album:"+al.ID
-						b := a.albumButton(c, al.Name, tint, count, on)
+						on := a.nav == "album:"+al.id
+						b := a.albumButton(c, al.name, al.tint, al.count, on)
 						if b.Clicked() {
-							a.navigate("album:" + al.ID)
+							a.navigate("album:" + al.id)
 						}
 						b.ContextMenu(func(m *ui.Menu) {
 							if m.Item("从中移出选中的照片").Disabled(len(a.selected()) == 0).Chosen() {
-								a.removeFromAlbum(al.ID)
+								a.removeFromAlbum(al.id)
 							}
 							m.Separator()
-							if m.Item("删除相册「" + al.Name + "」").Chosen() {
-								a.deleteAlbum(al.ID)
+							if m.Item("删除相册「" + al.name + "」").Chosen() {
+								a.deleteAlbum(al.id)
 							}
 						})
 					}
 				})
 
-				if tags := a.lib.AllTags(); len(tags) > 0 {
+				if len(d.tags) > 0 {
 					a.sectionLabel(c, "标签")
 					ui.Column(c).Gap(2).Children(func() {
-						for _, tag := range tags {
-							tag := tag
-							count := 0
-							for _, ph := range all {
-								if ph.HasTag(tag) {
-									count++
-								}
-							}
-							if a.navButton(c, tag, icons.tag, count, a.nav == "tag:"+tag).Clicked() {
-								a.navigate("tag:" + tag)
+						for _, row := range d.tags {
+							row := row
+							if a.navButton(c, row.name, icons.tag, row.count, a.nav == "tag:"+row.name).Clicked() {
+								a.navigate("tag:" + row.name)
 							}
 						}
 					})
 				}
 
-				if folders := a.lib.FolderList(); len(folders) > 0 {
+				if len(d.folders) > 0 {
 					ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 						a.sectionLabel(c, "文件夹")
 						ui.Spacer(c).Grow(1)
@@ -247,37 +229,22 @@ func (a *app) sidebar(c *ui.Context) {
 						}
 					})
 					ui.Column(c).Gap(2).Children(func() {
-						for _, dir := range folders {
-							dir := dir
-							count := 0
-							for _, ph := range all {
-								if strings.HasPrefix(ph.Path, dir+string(filepath.Separator)) {
-									count++
-								}
-							}
-							if a.navButton(c, filepath.Base(dir), icons.folder, count, a.nav == "folder:"+dir).Clicked() {
-								a.navigate("folder:" + dir)
+						for _, row := range d.folders {
+							row := row
+							if a.navButton(c, filepath.Base(row.path), icons.folder, row.count, a.nav == "folder:"+row.path).Clicked() {
+								a.navigate("folder:" + row.path)
 							}
 						}
 					})
 				}
 
-				years := map[string]int{}
-				for _, ph := range all {
-					years[itoa(ph.Year())]++
-				}
-				if len(years) > 0 {
+				if len(d.years) > 0 {
 					a.sectionLabel(c, "年份")
 					ui.Column(c).Gap(2).Children(func() {
-						var keys []string
-						for y := range years {
-							keys = append(keys, y)
-						}
-						sort.Sort(sort.Reverse(sort.StringSlice(keys)))
-						for _, y := range keys {
-							y := y
-							if a.navButton(c, y+" 年", icons.camera, years[y], a.nav == "year:"+y).Clicked() {
-								a.navigate("year:" + y)
+						for _, row := range d.years {
+							row := row
+							if a.navButton(c, row.year+" 年", icons.camera, row.count, a.nav == "year:"+row.year).Clicked() {
+								a.navigate("year:" + row.year)
 							}
 						}
 					})
@@ -302,30 +269,6 @@ type libCounts struct {
 	bytes                                 int64
 }
 
-// libraryCounts counts the photos of the library by the places that show
-// them.
-func libraryCounts(all []*Photo) libCounts {
-	var n libCounts
-	cutoff := time.Now().Unix() - 30*24*3600
-	for _, p := range all {
-		n.all++
-		n.bytes += p.Size
-		if p.TakenUnix >= cutoff {
-			n.recent++
-		}
-		if p.Favorite {
-			n.favorites++
-		}
-		if p.Stars > 0 {
-			n.stars++
-		}
-		if !p.Edit.IsZero() {
-			n.edited++
-		}
-	}
-	return n
-}
-
 // navigate shows one place of the library, from the top.
 func (a *app) navigate(nav string) {
 	a.nav = nav
@@ -335,6 +278,8 @@ func (a *app) navigate(nav string) {
 	a.viewKey = ""
 	a.libScroll.Y = 0
 	a.libScroll.ScrollTo(0, 0, ui.Smooth)
+	a.timelineScroll.Y = 0
+	a.railDrag = false
 }
 
 // statusbar is the line under the photos: how many, what is chosen and what
@@ -502,7 +447,8 @@ func (a *app) commandResults() []commandResult {
 	match := func(s string) bool {
 		return q == "" || strings.Contains(strings.ToLower(s), q)
 	}
-	for _, p := range a.lib.Snapshot() {
+	d := a.library()
+	for _, p := range d.all {
 		if len(out) >= 6 {
 			break
 		}
@@ -523,26 +469,26 @@ func (a *app) commandResults() []commandResult {
 			},
 		})
 	}
-	for _, al := range a.lib.AlbumList() {
-		if !match(al.Name) {
+	for _, al := range d.albums {
+		if !match(al.name) {
 			continue
 		}
 		al := al
 		add(commandResult{
-			title: al.Name,
+			title: al.name,
 			sub:   "相册",
 			icon:  icons.albums,
 			run: func() {
 				a.commandOpen = false
-				a.navigate("album:" + al.ID)
+				a.navigate("album:" + al.id)
 			},
 		})
 	}
-	for _, tag := range a.lib.AllTags() {
-		if !match(tag) {
+	for _, row := range d.tags {
+		if !match(row.name) {
 			continue
 		}
-		tag := tag
+		tag := row.name
 		add(commandResult{
 			title: tag,
 			sub:   "标签",
@@ -553,11 +499,11 @@ func (a *app) commandResults() []commandResult {
 			},
 		})
 	}
-	for _, dir := range a.lib.FolderList() {
-		if !match(filepath.Base(dir)) {
+	for _, row := range d.folders {
+		if !match(filepath.Base(row.path)) {
 			continue
 		}
-		dir := dir
+		dir := row.path
 		add(commandResult{
 			title: filepath.Base(dir),
 			sub:   dir,

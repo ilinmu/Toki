@@ -185,19 +185,13 @@ func (a *app) albumDialog(c *ui.Context) {
 		ui.Column(c).Gap(10).Width(380).Children(func() {
 			ui.Text(c, "加入相册").FontSize(16).Bold()
 			ui.Textf(c, "选中 %d 张", len(a.target())).FontSize(11).TextColor(t.TextMuted)
-			for _, al := range a.lib.AlbumList() {
+			for _, al := range a.library().albums {
 				al := al
-				count := 0
-				for _, p := range a.lib.Snapshot() {
-					if p.InAlbum(al.ID) {
-						count++
-					}
-				}
-				if ui.Button(c, al.Name+"  ·  "+itoa(count)+" 张").Clicked() {
-					a.lib.AddToAlbum(al.ID, a.target())
+				if ui.Button(c, al.name+"  ·  "+itoa(al.count)+" 张").Clicked() {
+					a.lib.AddToAlbum(al.id, a.target())
 					a.save()
 					a.albumOpen = false
-					a.status = "已加入相册「" + al.Name + "」"
+					a.status = "已加入相册「" + al.name + "」"
 				}
 			}
 			ui.Divider(c)
@@ -255,11 +249,11 @@ func (a *app) tagDialog(c *ui.Context) {
 					apply()
 				}
 			})
-			if tags := a.lib.AllTags(); len(tags) > 0 {
+			if tags := a.library().tags; len(tags) > 0 {
 				ui.Text(c, "已有标签").FontSize(11).TextColor(t.TextMuted)
 				ui.Row(c).Wrap().Gap(6).Children(func() {
-					for _, tag := range tags {
-						tag := tag
+					for _, row := range tags {
+						tag := row.name
 						if ui.Button(c, tag).Clicked() {
 							for _, p := range a.target() {
 								if !p.HasTag(tag) {

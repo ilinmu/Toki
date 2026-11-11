@@ -233,3 +233,63 @@ func TestTheTitleBarNamesTheAppOnce(t *testing.T) {
 		t.Fatalf("the title bar shows the Latin name too: %q", view.Texts())
 	}
 }
+
+// TestTheDateRailDragsAndWheelScrolls is the rail's pointer contract: the big
+// handle follows a drag, and a wheel over the rail scrolls the flow in the
+// same direction.
+func TestTheDateRailDragsAndWheelScrolls(t *testing.T) {
+	a := testApp(t)
+	dir := t.TempDir()
+	for i, name := range []string{"a.png", "b.png", "c.png", "d.png", "e.png", "f.png",
+		"g.png", "h.png", "i.png", "j.png", "k.png", "l.png"} {
+		writePNG(t, dir, name, 80, 60+i*10, uint8(i*20))
+	}
+	a.lib.AddFolder(dir)
+	a.scanFolder(dir, nil)
+	a.rebuild()
+	for i, p := range a.lib.Snapshot() {
+		p.TakenUnix -= int64(i * 86400)
+	}
+	a.set.ThumbSize = 2
+	a.mode, a.layout = 0, 1
+	a.viewKey = ""
+
+	view := ui.NewTester(a.view, 1180, 760)
+	view.Frame()
+	view.Frame()
+	rail, ok := view.Access("时间轴")
+	if !ok {
+		t.Fatalf("the rail is not reachable: %q", view.Texts())
+	}
+	handle, ok := view.Access("滚动手柄")
+	if !ok {
+		t.Fatalf("the handle is not reachable: %q", view.Texts())
+	}
+	firstY := handle.Bounds.Y
+	x, y := handle.Bounds.X+8, handle.Bounds.Y+14
+	view.Press(x, y)
+	view.Frame()
+	view.Move(x, y+100)
+	view.Frame()
+	view.Release(x, y+100)
+	view.Frame()
+	if a.libScroll.Y <= 0 {
+		t.Fatalf("dragging the handle did not scroll: %v", a.libScroll.Y)
+	}
+	after, _ := view.Access("滚动手柄")
+	if after.Bounds.Y <= firstY {
+		t.Fatalf("the handle did not follow the drag: %v then %v", firstY, after.Bounds.Y)
+	}
+
+	// A wheel over the rail scrolls down, and the handle moves down with it.
+	before := a.libScroll.Y
+	view.Wheel(rail.Bounds.X+12, rail.Bounds.Y+rail.Bounds.H/2, 0, 5)
+	view.Frame()
+	if a.libScroll.Y <= before {
+		t.Fatalf("the wheel over the rail did not scroll: %v then %v", before, a.libScroll.Y)
+	}
+	wheeled, _ := view.Access("滚动手柄")
+	if wheeled.Bounds.Y <= after.Bounds.Y {
+		t.Fatalf("the handle moved against the wheel: %v then %v", after.Bounds.Y, wheeled.Bounds.Y)
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,40 @@ var skipDirs = map[string]bool{
 type scanStats struct {
 	Added, Updated, Skipped, Duplicates int
 	Errors                              []string
+}
+
+// photoFromFile reads one image's metadata without adding it to the library.
+// It is how a file opened from the file manager becomes a photo the viewer
+// can show at once.
+func photoFromFile(path string) (*Photo, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() || !isImagePath(path) {
+		return nil, errors.New("不是支持的图片格式")
+	}
+	p := &Photo{
+		Path:      path,
+		Name:      filepath.Base(path),
+		Root:      filepath.Dir(path),
+		Size:      info.Size(),
+		ModUnix:   info.ModTime().Unix(),
+		TakenUnix: info.ModTime().Unix(),
+	}
+	exif := readEXIFFromFile(path)
+	if !exif.DateTimeOriginal.IsZero() {
+		p.TakenUnix = exif.DateTimeOriginal.Unix()
+	}
+	p.Orientation = exif.Orientation
+	p.Make, p.Model = exif.Make, exif.Model
+	p.ISO, p.FNumber = exif.ISO, exif.FNumber
+	p.ExposureTime, p.FocalLength = exif.ExposureTime, exif.FocalLength
+	p.HasGPS, p.Lat, p.Lon = exif.HasGPS, exif.Lat, exif.Lon
+	if w, h, err := imageSize(path); err == nil {
+		p.Width, p.Height = w, h
+	}
+	return p, nil
 }
 
 // scanFolder walks a watched folder and adds what the library does not know

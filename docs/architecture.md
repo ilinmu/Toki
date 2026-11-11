@@ -8,6 +8,8 @@ Toki 是一个纯 Go 的单二进制应用：MyGo 原生 UI，无前端运行时
 app/
 ├── app.go             app 状态、视图骨架、工具栏/侧栏/网格/时间轴/状态栏、偏好读写、main()
 ├── model.go           Photo / Album / EditState / Library（JSON 库、原子保存、互斥）
+├── library_index.go   库的派生索引：排序快照、按路径查找、侧栏计数（按变更重建）
+├── openfile.go        从 Finder / 文件管理器打开图片，库外照片按单张查看
 ├── scan.go            目录遍历、增量判断、内容指纹去重、清理失效项
 ├── exif.go            EXIF 解析（TIFF IFD/GPS）+ XMP 写入（JPEG 内嵌 / 边车）
 ├── imageops.go        解码（JPEG/PNG/GIF/BMP/WebP/TIFF）、方向校正、缩放（面积平均）、
@@ -42,6 +44,8 @@ Library{Folders,Photos,Albums,Tags,Prints}   // Prints: 指纹 → 路径，用�
   单用户桌面库（万级照片）足够；换 SQLite 是后续可选升级（见 `decisions.md`）。
 - **并发**：`Library.mu` 保护所有读写；扫描/导出/元数据写入在工作协程，结果通过
   `mygo.RunOnMain` + `win.Invalidate()` 回到主线程重绘（`winReady` 闸门防止首帧前通知窗口）。
+- **派生数据**：`libraryData` 按原子 revision 缓存排序快照与侧栏计数；`flowModel` 按照片/宽度/排列缓存
+  布局，并用按 y 排序的索引做二分查找；时间轴、胶片条与侧栏都只构建可见部分。一帧的复杂度与照片总数无关。
 - **原文件只读**：编辑、星级、标签都只存库里；「移出库」不改磁盘文件。
 
 ## 缩略图
@@ -50,7 +54,8 @@ Library{Folders,Photos,Albums,Tags,Prints}   // Prints: 指纹 → 路径，用�
 2. 命中内存 LRU（上限 400 张，超出 `ReleasePixels` 释放 CPU 像素）→ 直接返回。
 3. 否则读磁盘 `thumbs/<key>.jpg`，`ui.DecodeBitmap` 后入 LRU。
 4. 都没有：投递到后台工作协程（队列 512，满了就放弃本次，下一帧再要）。
-   协程做 `解码 → 方向校正 → 应用编辑 → 按尺寸缩放 → 写 JPEG`，然后在主线程建位图并请求重绘。
+   磁盘上已有的缩略图只由协程读取、在主线程解码；缺失的才做 `解码 → 方向校正 → 应用编辑 → 按尺寸缩放 → 写 JPEG`。
+   主线程从不做文件 I/O 或 JPEG 解码，滚动不会因为缩略图而停顿。
 5. 网格只构建可见单元格，所以 1 万张照片与 10 张的首帧开销相同。
 
 ## 动画 GIF
@@ -82,3 +87,5 @@ XMP 写入与替换、旋转/翻转/裁剪/拉直/缩放、导出（尺寸档位
 文件监视（真实文件系统事件）、三种视图的无窗口渲染（`ui.NewTester`）+ 文案断言。
 
 `TestPreview` 是手工工具：把真实库渲染成 PNG 便于目视检查（`TOKI_PREVIEW_DATA` / `TOKI_PREVIEW_OUT`）。
+
+性能回归在 `performance_test.go`：5000 张照片的网格 / 时间轴 / 胶片条只应构建可见元素，侧栏索引只应重建一次。
