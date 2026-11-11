@@ -4,6 +4,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -15,6 +16,36 @@ func previewEnv(name, oldName string) string {
 		return v
 	}
 	return os.Getenv(oldName)
+}
+
+// previewTheme is the appearance to render, when one is asked for. Left empty
+// the preview uses the library's own setting, which is dark; TOKI_PREVIEW_THEME
+// =light renders the same set in the light appearance, next to the dark one.
+func previewTheme() string {
+	switch t := os.Getenv("TOKI_PREVIEW_THEME"); t {
+	case "dark", "light":
+		return t
+	}
+	return ""
+}
+
+// previewName adds the appearance to a picture's name when one was asked for,
+// so both sets can be written to the same folder.
+func previewName(name, theme string) string {
+	if theme == "" {
+		return name
+	}
+	return strings.TrimSuffix(name, ".png") + "-" + theme + ".png"
+}
+
+// previewApp opens the demo library in the appearance the preview asked for.
+func previewApp(data, theme string) *app {
+	a := newAppAt(data)
+	if theme != "" {
+		a.set.Theme = theme
+	}
+	a.rebuild()
+	return a
 }
 
 // TestPreview renders the window's views without a window and writes them as
@@ -31,8 +62,8 @@ func TestPreview(t *testing.T) {
 	if data == "" || out == "" {
 		t.Skip("set TOKI_PREVIEW_DATA and TOKI_PREVIEW_OUT to render the views")
 	}
-	a := newAppAt(data)
-	a.rebuild()
+	theme := previewTheme()
+	a := previewApp(data, theme)
 	if len(a.photos) == 0 {
 		t.Fatalf("no photos in %s", data)
 	}
@@ -41,7 +72,7 @@ func TestPreview(t *testing.T) {
 	}
 	save := func(name string, img *ui.Tester) {
 		shot := img.Image()
-		path := filepath.Join(out, name)
+		path := filepath.Join(out, previewName(name, theme))
 		f, err := os.Create(path)
 		if err != nil {
 			t.Fatal(err)
@@ -62,8 +93,7 @@ func TestPreview(t *testing.T) {
 	// The same grid at the smallest the window goes, where the toolbar is
 	// tightest. A grid belongs to one window at a time, so this is a second
 	// app on the same library.
-	b := newAppAt(data)
-	b.rebuild()
+	b := previewApp(data, theme)
 	narrow := ui.NewTester(b.view, 780, 560)
 	narrow.Frame()
 	save("ui-grid-narrow.png", narrow)

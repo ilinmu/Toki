@@ -25,6 +25,8 @@ preview:
 	python3 bin/preview_seed.py $(APP)/.preview
 	cd $(APP) && TOKI_PREVIEW_DATA="$$PWD/.preview" TOKI_PREVIEW_OUT=../docs/screenshots \
 		go test -run 'TestPreview|TestPreviewStates' -v
+	cd $(APP) && TOKI_PREVIEW_DATA="$$PWD/.preview" TOKI_PREVIEW_OUT=../docs/screenshots \
+		TOKI_PREVIEW_THEME=light go test -run 'TestPreview|TestPreviewStates' -v
 
 clean:
 	rm -rf $(APP)/build $(APP)/.preview $(APP)/.mygo

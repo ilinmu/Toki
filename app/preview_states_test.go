@@ -23,8 +23,8 @@ func TestPreviewStates(t *testing.T) {
 	if data == "" || out == "" {
 		t.Skip("set TOKI_PREVIEW_DATA and TOKI_PREVIEW_OUT to render the states")
 	}
-	a := newAppAt(data)
-	a.rebuild()
+	theme := previewTheme()
+	a := previewApp(data, theme)
 	if len(a.photos) < 3 {
 		t.Fatalf("few photos in %s", data)
 	}
@@ -33,7 +33,7 @@ func TestPreviewStates(t *testing.T) {
 	}
 	save := func(name string, view *ui.Tester) {
 		shot := view.Image()
-		f, err := os.Create(filepath.Join(out, name))
+		f, err := os.Create(filepath.Join(out, previewName(name, theme)))
 		if err != nil {
 			t.Fatal(err)
 		}
