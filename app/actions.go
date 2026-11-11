@@ -111,16 +111,27 @@ func (a *app) prewarm(photos []*Photo) {
 	if len(photos) == 0 || !uiReady.Load() {
 		return
 	}
+	type job struct {
+		path string
+		mod  int64
+		size int
+		edit EditState
+	}
 	sizes := []int{a.thumbPixels(), previewSmall}
+	jobs := make([]job, 0, len(photos)*len(sizes))
+	for _, p := range photos {
+		edit := p.Edit.Clone()
+		for _, size := range sizes {
+			jobs = append(jobs, job{path: p.Path, mod: p.ModUnix, size: size, edit: edit})
+		}
+	}
 	go func() {
 		mygo.RunOnMain(func() {
 			a.preparing = true
 			a.refreshUI()
 		})
-		for _, p := range photos {
-			for _, size := range sizes {
-				a.thumbs.Prewarm(p.Path, p.ModUnix, size, p.Edit)
-			}
+		for _, j := range jobs {
+			a.thumbs.Prewarm(j.path, j.mod, j.size, j.edit)
 		}
 		for a.thumbs.PrewarmPending() > 0 {
 			time.Sleep(150 * time.Millisecond)
@@ -167,13 +178,14 @@ func (a *app) refresh() {
 		}
 		gone := a.prune()
 		a.save()
-		a.prewarm(a.lib.Snapshot())
+		photos := a.lib.Snapshot()
 		mygo.RunOnMain(func() {
 			a.scanning = false
 			a.scanMsg = ""
 			a.viewKey = ""
 			a.status = fmt.Sprintf("扫描完成：新增 %d · 更新 %d · 未变 %d · 重复跳过 %d · 移除失效 %d",
 				total.Added, total.Updated, total.Skipped, total.Duplicates, gone)
+			a.prewarm(photos)
 			a.refreshUI()
 		})
 	}()
@@ -437,10 +449,12 @@ func (a *app) watchFolder(dir string) {
 			}
 			a.save()
 			added := st.Added
+			photos := a.lib.Snapshot()
 			mygo.RunOnMain(func() {
 				a.viewKey = ""
 				if added > 0 {
 					a.status = fmt.Sprintf("监视 %s：新增 %d 张", filepath.Base(dir), added)
+					a.prewarm(photos)
 				}
 				a.refreshUI()
 			})
