@@ -98,7 +98,9 @@ func (a *app) inspectorPhoto(c *ui.Context, ph *Photo) {
 	// confetti plays on it.
 	preview := ui.Box(c).FillWidth().AspectRatio(4.0 / 3.0).Radius(4).Clip().Background(p.imageMat).
 		Children(func() {
-			if bmp, ready := a.thumbs.Bitmap(ph.Path, ph.ModUnix, 480, ph.Edit); ready {
+			// The inspector is small: show any cached thumbnail at once, and
+			// let the 480px version replace it when it is ready.
+			if bmp, ready := a.previewBitmap(ph, 480); ready {
 				ui.Image(c, bmp).Fit(ui.Cover).Fill()
 			}
 		})
