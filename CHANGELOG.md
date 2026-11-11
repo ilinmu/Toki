@@ -2,7 +2,9 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
-## [Unreleased]
+## [0.1.4] - 2026-11-11
+
+这一版把导入后的缩略图准备、快速滚动与动画手感做顺。
 
 ### 修复
 
