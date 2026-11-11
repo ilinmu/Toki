@@ -93,6 +93,14 @@ type app struct {
 	flowCache  *flowCache
 	railCache  *railCache
 
+	// The thumbnail size actually laid out, eased toward the segmented choice.
+	thumbShown      float32
+	thumbAnimFrom   float32
+	thumbAnimTo     float32
+	thumbAnimStart  time.Time
+	thumbAnimating  bool
+	thumbAnimLength time.Duration
+
 	// The date rail's drag, the timeline's and the filmstrip's scroll.
 	railDrag          bool
 	railGrabY         float32

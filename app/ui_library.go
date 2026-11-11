@@ -210,16 +210,50 @@ func (m *flowModel) firstHeader(top float32) int {
 	})
 }
 
+// animatedThumbTarget eases the card width when the small / medium / large
+// choice changes, so the wall rearranges as a motion instead of a jump.
+func (a *app) animatedThumbTarget(c *ui.Context) float32 {
+	target := a.thumbTarget()
+	if a.thumbShown == 0 {
+		a.thumbShown, a.thumbAnimTo = target, target
+		return target
+	}
+	if target != a.thumbAnimTo {
+		a.thumbAnimFrom = a.thumbShown
+		a.thumbAnimTo = target
+		a.thumbAnimStart = time.Now()
+		a.thumbAnimating = true
+	}
+	if !a.thumbAnimating {
+		a.thumbShown = target
+		return target
+	}
+	d := a.thumbAnimLength
+	if d <= 0 {
+		d = 180 * time.Millisecond
+	}
+	p := float64(time.Since(a.thumbAnimStart)) / float64(d)
+	if p >= 1 {
+		a.thumbShown = target
+		a.thumbAnimating = false
+		return target
+	}
+	ease := 1 - math.Pow(1-p, 3)
+	a.thumbShown = a.thumbAnimFrom + (a.thumbAnimTo-a.thumbAnimFrom)*float32(ease)
+	c.After(16 * time.Millisecond)
+	return a.thumbShown
+}
+
 // flowFor returns the layout of the current photos, rebuilding it only when
 // the photos, the arrangement, the card size or the width changes.
-func (a *app) flowFor(innerW float32) *flowModel {
+func (a *app) flowFor(innerW, target float32) *flowModel {
 	key := fmt.Sprintf("%d|%d|%d|%t|%d", a.photoRev, a.layout,
-		int(innerW), a.set.ShowNames, int(a.thumbTarget()))
+		int(innerW), a.set.ShowNames, int(target))
 	if a.flowCache != nil && a.flowCache.key == key {
 		return &a.flowCache.model
 	}
 	m := computeFlow(a.photos, innerW, a.layout == 1,
-		a.thumbTarget(), a.set.ShowNames)
+		target, a.set.ShowNames)
 	a.flowCache = &flowCache{key: key, model: m}
 	return &a.flowCache.model
 }
@@ -290,7 +324,8 @@ func (a *app) libraryView(c *ui.Context) {
 	} else {
 		a.railDrag = false
 	}
-	model := a.flowFor(innerW)
+	target := a.animatedThumbTarget(c)
+	model := a.flowFor(innerW, target)
 
 	ui.Column(c).Grow(1).Background(p.stage).Children(func() {
 		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {

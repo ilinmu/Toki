@@ -95,3 +95,23 @@ func TestTheSidebarIsIndexedOnce(t *testing.T) {
 		t.Fatal("a saved change did not invalidate the library index")
 	}
 }
+
+// TestTheThumbnailSizeEases checks the small / medium / large switch: the
+// layout width moves toward the new size instead of jumping.
+func TestTheThumbnailSizeEases(t *testing.T) {
+	a := manyPhotosApp(t, 40)
+	a.set.ThumbSize = 0
+	view := ui.NewTester(a.view, 1180, 760)
+	view.Frame()
+	if a.thumbShown != a.thumbTarget() {
+		t.Fatalf("the first layout is %v, want %v", a.thumbShown, a.thumbTarget())
+	}
+	a.thumbAnimLength = 5 * time.Millisecond
+	a.set.ThumbSize = 2
+	view.Frame()
+	time.Sleep(20 * time.Millisecond)
+	view.Frame()
+	if a.thumbShown != a.thumbTarget() {
+		t.Fatalf("the size settled at %v, want %v", a.thumbShown, a.thumbTarget())
+	}
+}
