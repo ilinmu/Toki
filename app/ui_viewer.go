@@ -27,28 +27,22 @@ var (
 	viewerLoveC    = ui.RGB(242, 122, 155)
 )
 
-// openViewer shows a photo over the window's stage, full screen.
-func (a *app) openViewer(path string) { a.openLightbox(path) }
-
-// openLightbox shows a photo over the window's mask, and takes the window
-// full screen to give it the whole display.
-func (a *app) openLightbox(path string) {
-	a.current = path
+// openViewer shows a photo over the window's stage, full screen. A photo of
+// the library is walked among the library's photos; a file opened from the
+// file manager among the images of its folder.
+func (a *app) openViewer(path string) {
+	if p := a.lib.Get(path); p != nil {
+		a.leaveOneOff()
+		a.showInViewer(p)
+	} else if p := a.oneOffPhoto(path); p != nil {
+		a.showInViewer(p)
+	} else {
+		return
+	}
 	a.lightbox = true
-	a.lightZoom = 1
-	a.lightZoomShown = 1
-	a.lightX, a.lightY = 0, 0
-	a.lightXShown, a.lightYShown = 0, 0
-	a.lightAnimating = false
+	a.slideshow = false
 	a.lightDragging = false
 	a.lightMoved = false
-	a.slideshow = false
-	a.wheelDelta = 0
-	if i, ok := a.photoIndex[path]; ok {
-		a.filmScroll.X = max(0, float32(i*72-300))
-	} else {
-		a.filmScroll.X = 0
-	}
 	if a.win == nil || a.win.IsFullScreen() {
 		return
 	}
@@ -60,8 +54,36 @@ func (a *app) openLightbox(path string) {
 	go win.SetFullScreen(true)
 }
 
+// showInViewer shows one photo of the ones being browsed, fitted and unzoomed.
+func (a *app) showInViewer(p *Photo) {
+	a.current = p.Path
+	if a.externalFor != "" {
+		// A one-off photo that joined the library is read from the library, so
+		// its stars and its edit are the ones that count.
+		if a.lib.Get(p.Path) != nil {
+			a.external = nil
+		} else {
+			a.enrichOneOff(p)
+			a.external = p
+		}
+	}
+	a.lightZoom = 1
+	a.lightZoomShown = 1
+	a.lightX, a.lightY = 0, 0
+	a.lightXShown, a.lightYShown = 0, 0
+	a.lightAnimating = false
+	a.wheelDelta = 0
+	a.draftFor = ""
+	a.filmReveal = true
+}
+
+// openLightbox shows a photo over the window's mask, and takes the window
+// full screen to give it the whole display.
+func (a *app) openLightbox(path string) { a.openViewer(path) }
+
 // closeLightbox leaves the lightbox, and full screen with it when the
-// lightbox asked for it.
+// lightbox asked for it. The folder a file was opened from is left with the
+// lightbox, unless its photo joined the library by being favorited.
 func (a *app) closeLightbox() {
 	a.lightbox = false
 	a.lightZoom = 1
@@ -71,9 +93,12 @@ func (a *app) closeLightbox() {
 	a.lightAnimating = false
 	a.slideshow = false
 	a.wheelDelta = 0
-	if a.external != nil && a.current == a.external.Path {
-		a.external = nil
-		a.current = ""
+	a.filmReveal = false
+	if a.externalFor != "" {
+		if a.lib.Get(a.current) == nil {
+			a.current = ""
+		}
+		a.leaveOneOff()
 	}
 	if !a.lightWasFull || a.win == nil {
 		a.lightWasFull = false
@@ -112,7 +137,7 @@ func (a *app) viewerShortcuts(c *ui.Context) {
 	}
 	if c.Shortcut(0, ui.KeyF) {
 		if p := a.shownPhoto(); p != nil {
-			p.Favorite = !p.Favorite
+			a.setFavorite(p, !p.Favorite)
 			a.save()
 			a.viewKey = ""
 			if p.Favorite {
@@ -245,11 +270,10 @@ func (a *app) viewerTop(c *ui.Context, p *Photo) {
 				b.Children(func() { glyph(c, ic, 16, col) })
 				if b.Clicked() {
 					if p.Stars == n {
-						p.Stars = 0
+						a.setStars(p, 0)
 					} else {
-						p.Stars = n
+						a.setStars(p, n)
 					}
-					a.save()
 				}
 			}
 		})
@@ -258,9 +282,9 @@ func (a *app) viewerTop(c *ui.Context, p *Photo) {
 		if p.Favorite {
 			heartIcon, heartCol = icons.heartFilled, viewerLoveC
 		}
-		heart := a.viewerIconButtonTint(c, heartIcon, "收藏 (F)", heartCol)
+		heart := a.viewerIconButtonTint(c, heartIcon, favoriteLabel(p.Favorite)+" (F)", heartCol)
 		if heart.Clicked() {
-			p.Favorite = !p.Favorite
+			a.setFavorite(p, !p.Favorite)
 			a.save()
 			a.viewKey = ""
 			if p.Favorite {
@@ -268,14 +292,18 @@ func (a *app) viewerTop(c *ui.Context, p *Photo) {
 			}
 		}
 		if a.viewerIconButton(c, icons.download, "导出", false).Clicked() {
-			a.sel.Clear()
-			a.sel.Add(p.Path)
-			a.openExport()
+			if q := a.keepInLibrary(p); q != nil {
+				a.sel.Clear()
+				a.sel.Add(q.Path)
+				a.openExport()
+			}
 		}
 		if a.viewerIconButton(c, icons.sliders, "编辑", false).Clicked() {
-			a.closeLightbox()
-			a.openPhoto(p.Path)
-			a.openEditPanel(p)
+			if q := a.keepInLibrary(p); q != nil {
+				a.closeLightbox()
+				a.openPhoto(q.Path)
+				a.openEditPanel(q)
+			}
 		}
 		ui.Box(c).Width(1).Height(20).Background(viewerLineC).MarginX(4)
 		playIcon := icons.play
@@ -366,16 +394,20 @@ func (a *app) viewerFooter(c *ui.Context, p *Photo, areaW, areaH float32) {
 			if !p.Edit.IsZero() {
 				sub += " · 已编辑"
 			}
+			if a.externalFor != "" {
+				if a.lib.Get(p.Path) == nil {
+					sub += " · 库外照片"
+				} else {
+					sub += " · 已加入资料库"
+				}
+			}
 			ui.Text(c, sub).FontSize(11).TextColor(viewerMuted).SingleLine()
 		})
 
 		// The filmstrip is a virtual row: a spacer gives the scroll container
 		// its width, and only the thumbnails in sight are built. A library of
 		// ten thousand photos no longer creates ten thousand buttons per frame.
-		photos := a.photos
-		if a.external != nil && p.Path == a.external.Path {
-			photos = []*Photo{a.external}
-		}
+		photos := a.shownPhotos()
 		const filmStep float32 = 72 // 64px thumbnail + 8px gap
 		totalW := float32(len(photos))*filmStep - 8
 		if totalW < 1 {
@@ -384,6 +416,14 @@ func (a *app) viewerFooter(c *ui.Context, p *Photo, areaW, areaH float32) {
 		viewport := c.Resolve(a.filmScrollRef).Bounds().W
 		if viewport <= 0 {
 			viewport = 800 // the first frame has no committed bounds yet
+		}
+		if a.filmReveal {
+			// Every switch of photo brings its thumbnail into the filmstrip, so
+			// stepping through many photos never leaves the one shown behind.
+			if i, ok := a.shownIndex(p.Path); ok {
+				a.filmScroll.X = filmStripOffset(i, viewport, totalW)
+			}
+			a.filmReveal = false
 		}
 		left := a.filmScroll.X
 		first := int(left/filmStep) - 1
@@ -414,9 +454,7 @@ func (a *app) viewerFooter(c *ui.Context, p *Photo, areaW, areaH float32) {
 						}
 					})
 					if thumb.Clicked() {
-						a.current = ph.Path
-						a.lightZoom, a.lightX, a.lightY = 1, 0, 0
-						a.wheelDelta = 0
+						a.showInViewer(ph)
 					}
 				}
 			})
@@ -443,6 +481,17 @@ func (a *app) viewerFooter(c *ui.Context, p *Photo, areaW, areaH float32) {
 			}
 		})
 	})
+}
+
+// filmStripOffset is where the filmstrip scrolls to so the thumbnail at i
+// shows, as near the middle of it as the two ends allow.
+func filmStripOffset(i int, viewport, totalW float32) float32 {
+	const filmStep, filmThumb float32 = 72, 64
+	x := float32(i)*filmStep + (filmThumb-viewport)/2
+	if max := totalW - viewport; x > max {
+		x = max
+	}
+	return max(0, x)
 }
 
 // lightboxInput applies one input event of the picture area: the wheel and
@@ -672,13 +721,10 @@ func (a *app) photoBitmap(c *ui.Context, p *Photo, want int) (*ui.Bitmap, bool) 
 	return a.previewBitmap(p, want)
 }
 
-// lightboxCounter says which photo this is among the ones the library shows.
+// lightboxCounter says which photo this is among the ones being browsed.
 func (a *app) lightboxCounter() string {
-	if i, ok := a.photoIndex[a.current]; ok {
-		return fmt.Sprintf("%d / %d", i+1, len(a.photos))
-	}
-	if a.external != nil && a.external.Path == a.current {
-		return "1 / 1"
+	if i, ok := a.shownIndex(a.current); ok {
+		return fmt.Sprintf("%d / %d", i+1, len(a.shownPhotos()))
 	}
 	return ""
 }
@@ -721,18 +767,16 @@ func (a *app) oneUpShortcuts(c *ui.Context) {
 
 // step moves to the photo before or after the one shown.
 func (a *app) step(delta int) {
-	if len(a.photos) == 0 {
+	photos := a.shownPhotos()
+	if len(photos) == 0 {
 		return
 	}
-	idx, ok := a.photoIndex[a.current]
+	i, ok := a.shownIndex(a.current)
 	if !ok {
 		return
 	}
-	idx = (idx + delta + len(a.photos)) % len(a.photos)
-	a.current = a.photos[idx].Path
-	a.lightZoom, a.lightX, a.lightY = 1, 0, 0
-	a.wheelDelta = 0
-	a.draftFor = ""
+	i = (i + delta + len(photos)) % len(photos)
+	a.showInViewer(photos[i])
 }
 
 // oneUpHeader is the bar above the picture: where it is, how it is rated, and
@@ -755,7 +799,7 @@ func (a *app) oneUpHeader(c *ui.Context, p *Photo) {
 		}
 		heart := a.iconButtonTint(c, heartIcon, favoriteLabel(p.Favorite), heartCol)
 		if heart.Clicked() {
-			p.Favorite = !p.Favorite
+			a.setFavorite(p, !p.Favorite)
 			a.save()
 			a.viewKey = ""
 			if p.Favorite {

@@ -45,17 +45,19 @@ func (a *app) prefetchNeighbors(p *Photo, want int) {
 	}
 }
 
-// neighbor is the photo delta places from p in the photos shown, or nil.
+// neighbor is the photo delta places from p in the photos being browsed: the
+// library's, or the folder a file was opened from.
 func (a *app) neighbor(p *Photo, delta int) *Photo {
-	i, ok := a.photoIndex[p.Path]
+	i, ok := a.shownIndex(p.Path)
 	if !ok {
 		return nil
 	}
+	photos := a.shownPhotos()
 	j := i + delta
-	if j < 0 || j >= len(a.photos) {
+	if j < 0 || j >= len(photos) {
 		return nil
 	}
-	return a.photos[j]
+	return photos[j]
 }
 
 // previewFor returns the size to make for an area at a zoom: enough pixels

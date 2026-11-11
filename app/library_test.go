@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -296,5 +297,81 @@ func TestRemovingAFolderKeepsEveryFile(t *testing.T) {
 	}
 	if a.nav != "all" {
 		t.Fatalf("the view stayed on the removed folder: %q", a.nav)
+	}
+}
+
+// TestRemovingAFolderKeepsItsFavorites is the sixth request: a favorite is a
+// photo the user asked to keep, so taking its folder out of the library keeps
+// it — as a photo of the library rather than a photo of a watched folder.
+func TestRemovingAFolderKeepsItsFavorites(t *testing.T) {
+	a := testApp(t)
+	dir := t.TempDir()
+	fav := writePNG(t, dir, "fav.png", 20, 20, 10)
+	plain := writePNG(t, dir, "plain.png", 20, 20, 60)
+	a.lib.AddFolder(dir)
+	a.scanFolder(dir, nil)
+	a.lib.Get(fav).Favorite = true
+
+	// The question can be turned off, and the removal happens without it.
+	a.set.ConfirmUnwatch = false
+	a.confirmRemoveFolder(dir)
+
+	if len(a.lib.FolderList()) != 0 {
+		t.Fatal("the folder is still watched")
+	}
+	if p := a.lib.Get(fav); p == nil {
+		t.Fatal("removing the folder dropped a favorite")
+	} else if !p.Favorite {
+		t.Fatal("the kept photo lost its favorite mark")
+	}
+	if a.lib.Get(plain) != nil {
+		t.Fatal("removing the folder kept a photo that is not a favorite")
+	}
+	if _, err := os.Stat(fav); err != nil {
+		t.Fatalf("removing the folder deleted a file: %v", err)
+	}
+	if !strings.Contains(a.status, "1 张收藏") {
+		t.Fatalf("the status does not say what was kept: %q", a.status)
+	}
+	if a.lib.Get(fav).Root != dir {
+		t.Fatal("the kept photo forgot the folder it is in")
+	}
+
+	// The favorite no longer needs the folder: it is a photo of the library.
+	a.nav = "favorites"
+	a.rebuild()
+	if len(a.photos) != 1 || a.photos[0].Path != fav {
+		t.Fatalf("the favorites view shows %d photos, want the kept one", len(a.photos))
+	}
+
+	// Importing the folder again brings the other photos back and leaves the
+	// favorite as it was.
+	a.lib.AddFolder(dir)
+	a.scanFolder(dir, nil)
+	if p := a.lib.Get(fav); p == nil || !p.Favorite {
+		t.Fatal("re-importing the folder lost the favorite")
+	}
+	if a.lib.Get(plain) == nil {
+		t.Fatal("re-importing the folder did not bring its photos back")
+	}
+}
+
+// TestSettingsKeepTheDefaultsOfNewPreferences is a preference added in a later
+// version: the settings file of an older one does not turn it off.
+func TestSettingsKeepTheDefaultsOfNewPreferences(t *testing.T) {
+	dir := t.TempDir()
+	old := `{"thumb_size": 2, "sort": "name"}`
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := newAppAt(dir)
+	if !a.set.ConfirmUnwatch {
+		t.Fatal("an old settings file turned off the question before removing a folder")
+	}
+	if !a.set.ConfirmForget {
+		t.Fatal("an old settings file turned off the question before forgetting photos")
+	}
+	if a.set.ThumbSize != 2 || a.set.Sort != "name" {
+		t.Fatalf("the settings file was not read: size %d, sort %q", a.set.ThumbSize, a.set.Sort)
 	}
 }

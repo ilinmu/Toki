@@ -151,6 +151,9 @@ func (a *app) settingsDialog(c *ui.Context) {
 			if ui.Checkbox(c, &a.set.ConfirmForget, "把照片移出库前确认").Changed() {
 				a.saveSettings()
 			}
+			if ui.Checkbox(c, &a.set.ConfirmUnwatch, "把文件夹移出资料库前确认").Changed() {
+				a.saveSettings()
+			}
 			if ui.Checkbox(c, &a.set.ShowNames, "在缩略图下显示文件名").Changed() {
 				a.saveSettings()
 			}

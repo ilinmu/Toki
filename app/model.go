@@ -228,26 +228,38 @@ func (l *Library) AddFolder(dir string) bool {
 	return true
 }
 
-// RemoveFolder stops watching a folder and forgets the photos under it.
-func (l *Library) RemoveFolder(dir string) {
+// RemoveFolder stops watching a folder and forgets the photos under it,
+// except the favorites: a favorite says the photo is wanted in the library,
+// so it stays there as a photo of its own, with no folder to watch. It
+// returns how many photos it kept that way.
+func (l *Library) RemoveFolder(dir string) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	kept := l.Folders[:0]
+	folders := l.Folders[:0]
 	for _, f := range l.Folders {
 		if f != dir {
-			kept = append(kept, f)
+			folders = append(folders, f)
 		}
 	}
-	l.Folders = kept
+	l.Folders = folders
 	photos := l.Photos[:0]
+	var gone []string
+	kept := 0
 	for _, p := range l.Photos {
 		if p.Root == dir {
-			delete(l.byPath, p.Path)
-			continue
+			if p.Favorite {
+				kept++
+			} else {
+				delete(l.byPath, p.Path)
+				gone = append(gone, p.Path)
+				continue
+			}
 		}
 		photos = append(photos, p)
 	}
 	l.Photos = photos
+	l.dropPrints(gone)
+	return kept
 }
 
 // Upsert adds or refreshes a photo by path, keeping its stars, tags, albums
@@ -294,6 +306,24 @@ func (l *Library) Forget(paths []string) {
 		}
 	}
 	l.Photos = kept
+	l.dropPrints(paths)
+}
+
+// dropPrints forgets the fingerprints of photos that left the library, so the
+// same picture can be imported again under another path.
+func (l *Library) dropPrints(paths []string) {
+	if len(paths) == 0 || len(l.Prints) == 0 {
+		return
+	}
+	drop := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		drop[p] = true
+	}
+	for print, path := range l.Prints {
+		if drop[path] {
+			delete(l.Prints, print)
+		}
+	}
 }
 
 // Get returns the photo at path, or nil.

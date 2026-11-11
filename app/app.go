@@ -19,33 +19,35 @@ import (
 // settings are the preferences the settings window changes, saved beside the
 // library.
 type settings struct {
-	ThumbSize     int    `json:"thumb_size"`   // 0 small, 1 medium, 2 large
-	Sort          string `json:"sort"`         // date, dateasc, name, stars
-	DefaultView   string `json:"default_view"` // grid, timeline
-	Theme         string `json:"theme"`        // "", dark, light
-	Layout        string `json:"layout"`       // grid, masonry
-	Dedupe        bool   `json:"dedupe"`       // skip pictures seen under another path
-	ConfirmForget bool   `json:"confirm_forget"`
-	WriteMetadata bool   `json:"write_metadata"` // write captions, tags and stars into the files
-	ShowNames     bool   `json:"show_names"`
-	ExportSize    int    `json:"export_size"`
-	ExportQuality int    `json:"export_quality"`
+	ThumbSize      int    `json:"thumb_size"`   // 0 small, 1 medium, 2 large
+	Sort           string `json:"sort"`         // date, dateasc, name, stars
+	DefaultView    string `json:"default_view"` // grid, timeline
+	Theme          string `json:"theme"`        // "", dark, light
+	Layout         string `json:"layout"`       // grid, masonry
+	Dedupe         bool   `json:"dedupe"`       // skip pictures seen under another path
+	ConfirmForget  bool   `json:"confirm_forget"`
+	ConfirmUnwatch bool   `json:"confirm_unwatch"` // ask before a folder leaves the library
+	WriteMetadata  bool   `json:"write_metadata"`  // write captions, tags and stars into the files
+	ShowNames      bool   `json:"show_names"`
+	ExportSize     int    `json:"export_size"`
+	ExportQuality  int    `json:"export_quality"`
 }
 
 // defaultSettings are the preferences a new installation starts with.
 func defaultSettings() settings {
 	return settings{
-		ThumbSize:     1,
-		Sort:          "date",
-		DefaultView:   "grid",
-		Theme:         "",
-		Layout:        "grid",
-		Dedupe:        true,
-		ConfirmForget: true,
-		WriteMetadata: false,
-		ShowNames:     true,
-		ExportSize:    0,
-		ExportQuality: 1,
+		ThumbSize:      1,
+		Sort:           "date",
+		DefaultView:    "grid",
+		Theme:          "",
+		Layout:         "grid",
+		Dedupe:         true,
+		ConfirmForget:  true,
+		ConfirmUnwatch: true,
+		WriteMetadata:  false,
+		ShowNames:      true,
+		ExportSize:     0,
+		ExportQuality:  1,
 	}
 }
 
@@ -108,6 +110,8 @@ type app struct {
 	filmScroll        ui.ScrollState
 	filmScrollRef     ui.Handle
 	filmBoxRef        ui.Handle
+	// The filmstrip scrolls to the photo shown, once per switch.
+	filmReveal bool
 
 	// The lightbox: one photo over a dark mask, zoomed with the wheel.
 	lightbox      bool
@@ -172,10 +176,15 @@ type app struct {
 	tagText      string
 	form         exportForm
 
-	// A photo opened from the file manager but not in the library.
-	external    *Photo
-	openMu      sync.Mutex
-	pendingOpen []string
+	// A photo opened from the file manager but not in the library, the folder
+	// it came from and the photos in it: the viewer walks that folder, not the
+	// library, and nothing is added to the library unless it is favorited.
+	external      *Photo
+	externalList  []*Photo
+	externalIndex map[string]int
+	externalFor   string
+	openMu        sync.Mutex
+	pendingOpen   []string
 
 	// A precise (high-resolution) wheel accumulates deltas until one notch.
 	wheelDelta float64
@@ -272,10 +281,12 @@ func (a *app) loadSettings() {
 	if err != nil {
 		return
 	}
-	var s settings
+	// The defaults are read first, so a preference added in a later version
+	// starts at its default for a library saved before it existed.
+	s := defaultSettings()
 	if json.Unmarshal(b, &s) == nil {
 		if s.Sort == "" {
-			s = defaultSettings()
+			s.Sort = defaultSettings().Sort
 		}
 		a.set = s
 	}

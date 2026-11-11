@@ -350,7 +350,7 @@ func (a *app) toggleFavoriteCurrent(c *ui.Context) {
 	}
 	on := !target[0].Favorite
 	for _, p := range target {
-		p.Favorite = on
+		a.setFavorite(p, on)
 	}
 	a.save()
 	a.viewKey = ""

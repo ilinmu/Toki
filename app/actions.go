@@ -391,26 +391,53 @@ func (a *app) deleteTag(tag string) {
 }
 
 // confirmRemoveFolder asks before a watched folder is taken out of the
-// library. It is explicit that no file is deleted.
+// library. It is explicit that no file is deleted, says how many favorites
+// the folder keeps in the library, and lets the question be turned off.
 func (a *app) confirmRemoveFolder(dir string) {
-	res, err := mygo.Dialog.Message(mygo.MessageOptions{
+	if !a.set.ConfirmUnwatch {
+		a.removeFolder(dir)
+		return
+	}
+	opts := mygo.MessageOptions{
 		Type:  mygo.MessageQuestion,
 		Title: "移除文件夹",
 		Message: fmt.Sprintf("把「%s」从资料库中移除？\n\n"+
 			"只会移除 Toki 里的照片记录，不会删除磁盘上的任何文件；之后可以重新导入。", filepath.Base(dir)),
-		Buttons: []string{"移除文件夹", "取消"},
-		Parent:  a.win,
-	})
+		Buttons:       []string{"移除文件夹", "取消"},
+		CheckboxLabel: "以后不再提醒",
+		Parent:        a.win,
+	}
+	if n := a.favoritesInFolder(dir); n > 0 {
+		opts.Detail = fmt.Sprintf("其中 %d 张已收藏，会作为收藏保留在资料库里。", n)
+	}
+	res, err := mygo.Dialog.Message(opts)
 	if err != nil || res.Button != 0 {
 		return
+	}
+	if res.CheckboxChecked && a.set.ConfirmUnwatch {
+		a.set.ConfirmUnwatch = false
+		a.saveSettings()
 	}
 	a.removeFolder(dir)
 }
 
-// removeFolder stops watching a folder and forgets its photos. The files stay
-// on disk and the folder can be imported again.
+// favoritesInFolder counts the favorites a folder holds: removing the folder
+// keeps them, so the question can say so.
+func (a *app) favoritesInFolder(dir string) int {
+	n := 0
+	for _, p := range a.lib.Snapshot() {
+		if p.Root == dir && p.Favorite {
+			n++
+		}
+	}
+	return n
+}
+
+// removeFolder stops watching a folder and forgets its photos, except the
+// favorites: they stay in the library, since a favorite is a photo the user
+// meant to keep. The files stay on disk and the folder can be imported again.
 func (a *app) removeFolder(dir string) {
-	a.lib.RemoveFolder(dir)
+	kept := a.lib.RemoveFolder(dir)
 	a.unwatchFolder(dir)
 	if a.nav == "folder:"+dir {
 		a.navigate("all")
@@ -418,7 +445,12 @@ func (a *app) removeFolder(dir string) {
 		a.viewKey = ""
 	}
 	a.save()
-	a.status = "已移除文件夹「" + filepath.Base(dir) + "」，本地文件没有被删除"
+	name := filepath.Base(dir)
+	if kept > 0 {
+		a.status = fmt.Sprintf("已移除文件夹「%s」，%d 张收藏的照片留在资料库里；本地文件没有被删除", name, kept)
+		return
+	}
+	a.status = "已移除文件夹「" + name + "」，本地文件没有被删除"
 }
 
 // unwatchFolder stops the file watch of a folder that left the library.

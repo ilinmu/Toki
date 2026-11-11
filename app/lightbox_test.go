@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -526,5 +527,58 @@ func TestAPreciseWheelZoomsTheLightbox(t *testing.T) {
 	view.Frame()
 	if a.lightZoom >= first {
 		t.Fatalf("a precise wheel did not zoom out: %v then %v", first, a.lightZoom)
+	}
+}
+
+// TestTheFilmstripFollowsThePhotoShown is the first request: stepping through
+// many photos scrolls the filmstrip with them, so the photo shown is always
+// one of the thumbnails in sight.
+func TestTheFilmstripFollowsThePhotoShown(t *testing.T) {
+	a := testApp(t)
+	dir := t.TempDir()
+	var paths []string
+	for i := 0; i < 40; i++ {
+		paths = append(paths, writePNG(t, dir, fmt.Sprintf("shot-%02d.png", i), 60, 40, uint8(i*5)))
+	}
+	a.lib.AddFolder(dir)
+	a.scanFolder(dir, nil)
+	a.rebuild()
+	a.openLightbox(paths[0])
+
+	view := ui.NewTester(a.view, 1180, 760)
+	view.Frame()
+	view.Frame()
+	if a.filmScroll.X != 0 {
+		t.Fatalf("the filmstrip starts at %v for the first photo", a.filmScroll.X)
+	}
+
+	// Walk far enough that the photo shown is past what the filmstrip first
+	// showed.
+	for i := 0; i < 30; i++ {
+		a.step(1)
+		view.Frame()
+	}
+	if a.filmScroll.X <= 0 {
+		t.Fatalf("the filmstrip stayed at its start after 30 photos: %v", a.filmScroll.X)
+	}
+	shown, ok := view.Find(filepath.Base(a.current))
+	if !ok {
+		t.Fatalf("the filmstrip has no thumbnail for %q: %q", a.current, view.Texts())
+	}
+	if shown.X+shown.W <= 0 || shown.X >= 1180 {
+		t.Fatalf("the thumbnail of the photo shown is outside the filmstrip: %+v", shown)
+	}
+
+	// Going back brings the filmstrip back with it, without running off the
+	// start of the strip.
+	for i := 0; i < 30; i++ {
+		a.step(-1)
+		view.Frame()
+	}
+	if filepath.Base(a.current) != "shot-00.png" {
+		t.Fatalf("walking back to the first photo shows %q", a.current)
+	}
+	if a.filmScroll.X != 0 {
+		t.Fatalf("the filmstrip did not go back to its start: %v", a.filmScroll.X)
 	}
 }

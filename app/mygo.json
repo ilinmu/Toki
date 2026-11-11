@@ -44,5 +44,59 @@
       "mimeType": "image/tiff",
       "role": "Viewer"
     }
-  ]
+  ],
+  "macos": {
+    "infoPlist": {
+      "CFBundleDocumentTypes": [
+        {
+          "CFBundleTypeName": "JPEG Image",
+          "CFBundleTypeRole": "Viewer",
+          "LSHandlerRank": "Alternate",
+          "LSItemContentTypes": ["public.jpeg"],
+          "CFBundleTypeExtensions": ["jpg", "jpeg", "jpe", "jfif"],
+          "CFBundleTypeMIMETypes": ["image/jpeg"]
+        },
+        {
+          "CFBundleTypeName": "PNG Image",
+          "CFBundleTypeRole": "Viewer",
+          "LSHandlerRank": "Alternate",
+          "LSItemContentTypes": ["public.png"],
+          "CFBundleTypeExtensions": ["png"],
+          "CFBundleTypeMIMETypes": ["image/png"]
+        },
+        {
+          "CFBundleTypeName": "GIF Image",
+          "CFBundleTypeRole": "Viewer",
+          "LSHandlerRank": "Alternate",
+          "LSItemContentTypes": ["com.compuserve.gif"],
+          "CFBundleTypeExtensions": ["gif"],
+          "CFBundleTypeMIMETypes": ["image/gif"]
+        },
+        {
+          "CFBundleTypeName": "BMP Image",
+          "CFBundleTypeRole": "Viewer",
+          "LSHandlerRank": "Alternate",
+          "LSItemContentTypes": ["com.microsoft.bmp"],
+          "CFBundleTypeExtensions": ["bmp"],
+          "CFBundleTypeMIMETypes": ["image/bmp"]
+        },
+        {
+          "CFBundleTypeName": "WebP Image",
+          "CFBundleTypeRole": "Viewer",
+          "LSHandlerRank": "Alternate",
+          "LSItemContentTypes": ["org.webmproject.webp"],
+          "CFBundleTypeExtensions": ["webp"],
+          "CFBundleTypeMIMETypes": ["image/webp"]
+        },
+        {
+          "CFBundleTypeName": "TIFF Image",
+          "CFBundleTypeRole": "Viewer",
+          "LSHandlerRank": "Alternate",
+          "LSItemContentTypes": ["public.tiff"],
+          "CFBundleTypeExtensions": ["tif", "tiff"],
+          "CFBundleTypeMIMETypes": ["image/tiff"]
+        }
+      ]
+    }
+  }
 }
