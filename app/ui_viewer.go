@@ -550,18 +550,10 @@ func (a *app) zoomAround(factor float64, x, y, areaW, areaH float32) {
 	if z == a.lightZoom {
 		return
 	}
-	from := a.lightZoomShown
-	if from <= 0 {
-		from = a.lightZoom
+	if !a.lightAnimating {
+		a.lightAnimLast = time.Now()
 	}
-	a.lightZoomFrom = from
-	a.lightXFrom = a.lightXShown
-	a.lightYFrom = a.lightYShown
-	a.lightAnimStart = time.Now()
 	a.lightAnimating = true
-	if a.lightAnimLength <= 0 {
-		a.lightAnimLength = 150 * time.Millisecond
-	}
 	// The pointer, relative to the middle of the area the photo fills.
 	cx := float64(x) - float64(areaW)/2
 	cy := float64(y) - float64(areaH)/2
@@ -617,29 +609,32 @@ func (a *app) settleZoom() {
 	a.lightX, a.lightY = a.lightXShown, a.lightYShown
 }
 
-// animateZoom eases the shown zoom and pan toward their targets.
+// animateZoom springs the shown zoom and pan toward their targets. The
+// spring keeps its velocity between wheel events, so a quick series of
+// notches builds one continuous, elastic motion.
 func (a *app) animateZoom(c *ui.Context) {
 	if !a.lightAnimating {
 		a.lightZoomShown = a.lightZoom
 		a.lightXShown, a.lightYShown = a.lightX, a.lightY
+		a.lightZoomVel, a.lightXVel, a.lightYVel = 0, 0, 0
 		return
 	}
-	d := a.lightAnimLength
-	if d <= 0 {
-		d = 150 * time.Millisecond
-	}
-	p := float64(time.Since(a.lightAnimStart)) / float64(d)
-	if p >= 1 {
+	now := time.Now()
+	dt := now.Sub(a.lightAnimLast).Seconds()
+	a.lightAnimLast = now
+	z, zv := springStep(a.lightZoomShown, a.lightZoom, a.lightZoomVel, dt, zoomSpringK, zoomSpringC)
+	x, xv := springStep(a.lightXShown, a.lightX, a.lightXVel, dt, zoomSpringK, zoomSpringC)
+	y, yv := springStep(a.lightYShown, a.lightY, a.lightYVel, dt, zoomSpringK, zoomSpringC)
+	a.lightZoomShown, a.lightZoomVel = z, zv
+	a.lightXShown, a.lightXVel = x, xv
+	a.lightYShown, a.lightYVel = y, yv
+	if springAtRest(z, a.lightZoom, zv) && springAtRest(x, a.lightX, xv) && springAtRest(y, a.lightY, yv) {
 		a.lightZoomShown = a.lightZoom
 		a.lightXShown, a.lightYShown = a.lightX, a.lightY
+		a.lightZoomVel, a.lightXVel, a.lightYVel = 0, 0, 0
 		a.lightAnimating = false
 		return
 	}
-	// Ease out, so a notch starts moving at once and settles gently.
-	ease := 1 - math.Pow(1-p, 3)
-	a.lightZoomShown = a.lightZoomFrom + (a.lightZoom-a.lightZoomFrom)*ease
-	a.lightXShown = a.lightXFrom + (a.lightX-a.lightXFrom)*ease
-	a.lightYShown = a.lightYFrom + (a.lightY-a.lightYFrom)*ease
 	c.After(16 * time.Millisecond)
 }
 

@@ -210,38 +210,59 @@ func (m *flowModel) firstHeader(top float32) int {
 	})
 }
 
-// animatedThumbTarget eases the card width when the small / medium / large
+// animatedThumbTarget springs the card width when the small / medium / large
 // choice changes, so the wall rearranges as a motion instead of a jump.
 func (a *app) animatedThumbTarget(c *ui.Context) float32 {
 	target := a.thumbTarget()
 	if a.thumbShown == 0 {
-		a.thumbShown, a.thumbAnimTo = target, target
+		a.thumbShown, a.thumbVel = target, 0
+		a.thumbAnimLast = time.Now()
 		return target
-	}
-	if target != a.thumbAnimTo {
-		a.thumbAnimFrom = a.thumbShown
-		a.thumbAnimTo = target
-		a.thumbAnimStart = time.Now()
-		a.thumbAnimating = true
 	}
 	if !a.thumbAnimating {
-		a.thumbShown = target
-		return target
+		if a.thumbShown == target {
+			return target
+		}
+		a.thumbAnimating = true
+		a.thumbAnimLast = time.Now()
+		a.thumbs.SetLimitFor(int(target))
 	}
-	d := a.thumbAnimLength
-	if d <= 0 {
-		d = 180 * time.Millisecond
-	}
-	p := float64(time.Since(a.thumbAnimStart)) / float64(d)
-	if p >= 1 {
-		a.thumbShown = target
+	now := time.Now()
+	dt := now.Sub(a.thumbAnimLast).Seconds()
+	a.thumbAnimLast = now
+	v, vel := springStep(float64(a.thumbShown), float64(target), a.thumbVel, dt, thumbSpringK, thumbSpringC)
+	a.thumbShown, a.thumbVel = float32(v), vel
+	if springAtRest(float64(a.thumbShown), float64(target), a.thumbVel) {
+		a.thumbShown, a.thumbVel = target, 0
 		a.thumbAnimating = false
 		return target
 	}
-	ease := 1 - math.Pow(1-p, 3)
-	a.thumbShown = a.thumbAnimFrom + (a.thumbAnimTo-a.thumbAnimFrom)*float32(ease)
 	c.After(16 * time.Millisecond)
 	return a.thumbShown
+}
+
+// prefetchFlow queues the thumbnails of the screens around the viewport, so a
+// fast scroll usually finds them in memory before they are drawn. The margin
+// is kept in check so a jump never floods the worker queue.
+func (a *app) prefetchFlow(model *flowModel, top, bottom float32) {
+	if bottom <= top {
+		return
+	}
+	margin := (bottom - top) * 1.5
+	from, to := top-margin, bottom+margin
+	size := a.thumbPixels()
+	count := 0
+	for k := model.firstVisible(from); k < len(model.order) && count < 120; k++ {
+		card := model.cards[model.order[k]]
+		if card.y > to {
+			break
+		}
+		if card.y+card.h < from {
+			continue
+		}
+		a.thumbs.Request(card.p.Path, card.p.ModUnix, size, card.p.Edit)
+		count++
+	}
 }
 
 // flowFor returns the layout of the current photos, rebuilding it only when
@@ -340,6 +361,7 @@ func (a *app) libraryView(c *ui.Context) {
 					scrollY := a.libScroll.Y
 					viewport := winH
 					top, bottom := scrollY-200, scrollY+viewport
+					a.prefetchFlow(model, top, bottom)
 					ui.Box(c).Width(model.width).Height(model.height).Ref(&a.flowRef).Children(func() {
 						if a.layout == 0 {
 							for i := model.firstHeader(top); i < len(model.headers); i++ {
@@ -591,7 +613,6 @@ func (a *app) photoCard(c *ui.Context, card flowCard) {
 				a.viewKey = ""
 				if ph.Favorite {
 					a.celebrate(c, heart, box.Bounds())
-					c.Toast("已收藏 " + ph.Name)
 				}
 			}
 		}

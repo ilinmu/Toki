@@ -93,13 +93,11 @@ type app struct {
 	flowCache  *flowCache
 	railCache  *railCache
 
-	// The thumbnail size actually laid out, eased toward the segmented choice.
-	thumbShown      float32
-	thumbAnimFrom   float32
-	thumbAnimTo     float32
-	thumbAnimStart  time.Time
-	thumbAnimating  bool
-	thumbAnimLength time.Duration
+	// The thumbnail size actually laid out, sprung toward the segmented choice.
+	thumbShown     float32
+	thumbVel       float64
+	thumbAnimLast  time.Time
+	thumbAnimating bool
 
 	// The date rail's drag, the timeline's and the filmstrip's scroll.
 	railDrag          bool
@@ -126,15 +124,14 @@ type app struct {
 
 	// The zoom actually drawn, eased toward the target set by the wheel and
 	// the buttons, so a notch never snaps the picture.
-	lightZoomShown  float64
-	lightXShown     float64
-	lightYShown     float64
-	lightZoomFrom   float64
-	lightXFrom      float64
-	lightYFrom      float64
-	lightAnimStart  time.Time
-	lightAnimating  bool
-	lightAnimLength time.Duration
+	lightZoomShown float64
+	lightXShown    float64
+	lightYShown    float64
+	lightZoomVel   float64
+	lightXVel      float64
+	lightYVel      float64
+	lightAnimLast  time.Time
+	lightAnimating bool
 
 	// The animated picture playing, if the photo shown is a GIF.
 	anim gifShow
@@ -184,10 +181,13 @@ type app struct {
 	wheelDelta float64
 
 	// Work in progress.
-	scanning  bool
-	scanMsg   string
-	preparing bool
-	status    string
+	scanning       bool
+	scanMsg        string
+	preparing      bool
+	prepareDone    int
+	prepareTotal   int
+	prewarmRunning atomic.Bool
+	status         string
 }
 
 // newApp makes the app with its library loaded.

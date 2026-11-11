@@ -27,14 +27,16 @@ type thumbCache struct {
 	dir    string
 	notify func()
 
-	mu        sync.Mutex
-	mem       map[string]*ui.Bitmap
-	latest    map[string]latestThumb // by path and stamp
-	order     []string               // least recently used first
-	pending   map[string]bool
-	jobs      chan thumbJob
-	limit     int
-	preparing atomic.Int64
+	mu          sync.Mutex
+	mem         map[string]*ui.Bitmap
+	latest      map[string]latestThumb // by path and stamp
+	order       []string               // least recently used first
+	pending     map[string]bool
+	jobs        chan thumbJob
+	prewarmJobs chan thumbJob
+	limit       int
+	preparing   atomic.Int64
+	prewarmDone atomic.Int64
 }
 
 // thumbJob asks for one thumbnail: either to make it from the original, or
@@ -62,13 +64,14 @@ type latestThumb struct {
 func newThumbCache(dir string, notify func()) *thumbCache {
 	os.MkdirAll(dir, 0o755)
 	t := &thumbCache{
-		dir:     dir,
-		notify:  notify,
-		mem:     map[string]*ui.Bitmap{},
-		latest:  map[string]latestThumb{},
-		pending: map[string]bool{},
-		jobs:    make(chan thumbJob, 512),
-		limit:   400,
+		dir:         dir,
+		notify:      notify,
+		mem:         map[string]*ui.Bitmap{},
+		latest:      map[string]latestThumb{},
+		pending:     map[string]bool{},
+		jobs:        make(chan thumbJob, 512),
+		prewarmJobs: make(chan thumbJob, 512),
+		limit:       400,
 	}
 	workers := max(2, min(4, runtime.NumCPU()-1))
 	for i := 0; i < workers; i++ {
@@ -123,6 +126,11 @@ func (t *thumbCache) Bitmap(path string, mod int64, size int, st EditState) (*ui
 		job.loadOnly = true
 	}
 	t.requestJob(job)
+	// Something this photo showed before, at another size, is better than a
+	// placeholder while its exact size loads.
+	if b, ok := t.Latest(path, mod); ok {
+		return b, true
+	}
 	return nil, false
 }
 
@@ -147,26 +155,53 @@ func (t *thumbCache) Request(path string, mod int64, size int, st EditState) {
 // Prewarm makes the thumbnail for a photo in the background, for a size the
 // views will ask for soon. It skips what is already cached, and never runs on
 // the UI thread: a large import is prepared while the user can keep working.
-func (t *thumbCache) Prewarm(path string, mod int64, size int, st EditState) {
+func (t *thumbCache) Prewarm(path string, mod int64, size int, st EditState, wantBitmap bool) bool {
 	if !uiReady.Load() {
-		return
+		return false
 	}
 	key := thumbKey(path, mod, int64(size), st)
 	t.mu.Lock()
 	_, inMemory := t.mem[key]
-	if inMemory || t.pending[key] || t.onDisk(key) {
+	if inMemory || t.pending[key] {
 		t.mu.Unlock()
-		return
+		return false
+	}
+	onDisk := t.onDisk(key)
+	if !wantBitmap && onDisk {
+		t.mu.Unlock()
+		return false
 	}
 	t.pending[key] = true
 	t.mu.Unlock()
+	job := thumbJob{key: key, path: path, mod: mod, size: size, edit: st,
+		diskOnly: !wantBitmap, loadOnly: wantBitmap && onDisk, prewarm: true}
 	t.preparing.Add(1)
-	t.jobs <- thumbJob{key: key, path: path, mod: mod, size: size, edit: st, diskOnly: true, prewarm: true}
+	t.prewarmJobs <- job
+	return true
+}
+
+// SetLimitFor sizes the decoded-bitmap cache for a thumbnail size, within a
+// memory budget. The current grid size is kept in memory for the whole
+// library when it fits; other sizes can still be read from disk.
+func (t *thumbCache) SetLimitFor(pixels int) {
+	if pixels <= 0 {
+		return
+	}
+	const budget = 384 << 20 // bytes of decoded pixels
+	n := budget / (pixels * pixels * 4)
+	n = min(max(n, 300), 1500)
+	t.mu.Lock()
+	t.limit = n
+	t.mu.Unlock()
 }
 
 // PrewarmPending is how many prewarm thumbnails are still queued or being
 // made.
 func (t *thumbCache) PrewarmPending() int64 { return t.preparing.Load() }
+
+// PrewarmDone is how many prewarm thumbnails have been written so far. The
+// caller takes a baseline before it queues a batch.
+func (t *thumbCache) PrewarmDone() int64 { return t.prewarmDone.Load() }
 
 // onDisk reports whether a thumbnail of this key was made before.
 func (t *thumbCache) onDisk(key string) bool {
@@ -255,8 +290,20 @@ func (t *thumbCache) file(key string) string { return filepath.Join(t.dir, key+"
 
 // work makes thumbnails until the app quits.
 func (t *thumbCache) work() {
-	for job := range t.jobs {
-		t.make(job)
+	for {
+		// What a view asks for goes before what prewarm queued.
+		select {
+		case job := <-t.jobs:
+			t.make(job)
+			continue
+		default:
+		}
+		select {
+		case job := <-t.jobs:
+			t.make(job)
+		case job := <-t.prewarmJobs:
+			t.make(job)
+		}
 	}
 }
 
@@ -271,6 +318,7 @@ func (t *thumbCache) make(job thumbJob) {
 		t.mu.Unlock()
 		if job.prewarm {
 			t.preparing.Add(-1)
+			t.prewarmDone.Add(1)
 		}
 	}()
 	if job.loadOnly {

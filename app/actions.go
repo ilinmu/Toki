@@ -108,38 +108,76 @@ func (a *app) addFolder() {
 // the background: an import prepares itself instead of showing placeholders
 // one by one when the user first scrolls. It skips anything already on disk.
 func (a *app) prewarm(photos []*Photo) {
-	if len(photos) == 0 || !uiReady.Load() {
+	if len(photos) == 0 || !uiReady.Load() || !a.prewarmRunning.CompareAndSwap(false, true) {
 		return
 	}
 	type job struct {
-		path string
-		mod  int64
-		size int
-		edit EditState
+		path   string
+		mod    int64
+		size   int
+		edit   EditState
+		bitmap bool
 	}
-	sizes := []int{a.thumbPixels(), previewSmall}
+	current := a.thumbPixels()
+	a.thumbs.SetLimitFor(current)
+	sizes := []int{current}
+	for _, size := range []int{160, 288, 480, previewSmall} {
+		if size != current {
+			sizes = append(sizes, size)
+		}
+	}
 	jobs := make([]job, 0, len(photos)*len(sizes))
-	for _, p := range photos {
-		edit := p.Edit.Clone()
-		for _, size := range sizes {
-			jobs = append(jobs, job{path: p.Path, mod: p.ModUnix, size: size, edit: edit})
+	for _, size := range sizes {
+		bitmap := size == current
+		for _, p := range photos {
+			jobs = append(jobs, job{path: p.Path, mod: p.ModUnix, size: size, edit: p.Edit.Clone(), bitmap: bitmap})
 		}
 	}
+	if len(jobs) == 0 {
+		a.prewarmRunning.Store(false)
+		return
+	}
+	total := len(jobs)
+	baseline := a.thumbs.PrewarmDone()
+	mygo.RunOnMain(func() {
+		a.preparing = true
+		a.prepareDone, a.prepareTotal = 0, total
+		a.refreshUI()
+	})
 	go func() {
-		mygo.RunOnMain(func() {
-			a.preparing = true
-			a.refreshUI()
-		})
+		skipped := 0
+		enqueued := 0
 		for _, j := range jobs {
-			a.thumbs.Prewarm(j.path, j.mod, j.size, j.edit)
+			if a.thumbs.Prewarm(j.path, j.mod, j.size, j.edit, j.bitmap) {
+				enqueued++
+			} else {
+				skipped++ // already cached, or already queued by a view
+			}
+			if enqueued%25 == 0 {
+				done := skipped + int(a.thumbs.PrewarmDone()-baseline)
+				mygo.RunOnMain(func() {
+					a.prepareDone = min(total, done)
+					a.refreshUI()
+				})
+			}
 		}
-		for a.thumbs.PrewarmPending() > 0 {
+		for {
+			done := skipped + int(a.thumbs.PrewarmDone()-baseline)
+			mygo.RunOnMain(func() {
+				a.prepareDone = min(total, done)
+				a.refreshUI()
+			})
+			if done >= total {
+				break
+			}
 			time.Sleep(150 * time.Millisecond)
 		}
 		mygo.RunOnMain(func() {
+			a.prepareDone = total
 			a.preparing = false
 			a.refreshUI()
 		})
+		a.prewarmRunning.Store(false)
 	}()
 }
 

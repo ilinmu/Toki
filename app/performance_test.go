@@ -106,11 +106,17 @@ func TestTheThumbnailSizeEases(t *testing.T) {
 	if a.thumbShown != a.thumbTarget() {
 		t.Fatalf("the first layout is %v, want %v", a.thumbShown, a.thumbTarget())
 	}
-	a.thumbAnimLength = 5 * time.Millisecond
 	a.set.ThumbSize = 2
 	view.Frame()
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(80 * time.Millisecond)
 	view.Frame()
+	if a.thumbShown <= 140 {
+		t.Fatalf("the size did not move from small: %v", a.thumbShown)
+	}
+	for i := 0; i < 40 && a.thumbAnimating; i++ {
+		time.Sleep(16 * time.Millisecond)
+		view.Frame()
+	}
 	if a.thumbShown != a.thumbTarget() {
 		t.Fatalf("the size settled at %v, want %v", a.thumbShown, a.thumbTarget())
 	}

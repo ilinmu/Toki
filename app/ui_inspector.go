@@ -129,7 +129,6 @@ func (a *app) inspectorPhoto(c *ui.Context, ph *Photo) {
 			a.viewKey = ""
 			if ph.Favorite {
 				a.celebrate(c, heart, preview.Bounds())
-				c.Toast("已收藏 " + ph.Name)
 			}
 		}
 	})

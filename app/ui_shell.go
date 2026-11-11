@@ -311,7 +311,11 @@ func (a *app) statusbar(c *ui.Context) {
 			ui.Textf(c, "正在扫描… %s", a.scanMsg).FontSize(12).TextColor(p.accent)
 		}
 		if a.preparing {
-			ui.Text(c, "正在后台准备缩略图…").FontSize(12).TextColor(p.accent)
+			label := "正在后台准备缩略图…"
+			if a.prepareTotal > 0 {
+				label = fmt.Sprintf("正在后台准备缩略图… %d/%d", a.prepareDone, a.prepareTotal)
+			}
+			ui.Text(c, label).FontSize(12).TextColor(p.accent)
 		}
 		if a.status != "" {
 			ui.Text(c, a.status).FontSize(12).TextColor(p.textDisabled).SingleLine()
