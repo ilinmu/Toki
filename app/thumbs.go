@@ -106,6 +106,18 @@ func (t *thumbCache) Bitmap(path string, mod int64, size int, st EditState) (*ui
 	}
 	waiting := t.pending[key]
 	t.mu.Unlock()
+	// Something this photo showed before, at another size, is better than a
+	// placeholder while its exact size loads or is being prepared.
+	if b, ok := t.Latest(path, mod); ok {
+		if !waiting {
+			job := thumbJob{key: key, path: path, mod: mod, size: size, edit: st}
+			if t.onDisk(key) {
+				job.loadOnly = true
+			}
+			t.requestJob(job)
+		}
+		return b, true
+	}
 	if waiting {
 		return nil, false
 	}
@@ -126,11 +138,6 @@ func (t *thumbCache) Bitmap(path string, mod int64, size int, st EditState) (*ui
 		job.loadOnly = true
 	}
 	t.requestJob(job)
-	// Something this photo showed before, at another size, is better than a
-	// placeholder while its exact size loads.
-	if b, ok := t.Latest(path, mod); ok {
-		return b, true
-	}
 	return nil, false
 }
 
