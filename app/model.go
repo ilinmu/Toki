@@ -423,6 +423,29 @@ func (l *Library) LearnTag(tag string) {
 	sort.Strings(l.Tags)
 }
 
+// DeleteTag removes a tag from every photo and from the learned vocabulary.
+// The photos themselves stay in the library.
+func (l *Library) DeleteTag(tag string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	keptTags := l.Tags[:0]
+	for _, t := range l.Tags {
+		if !strings.EqualFold(t, tag) {
+			keptTags = append(keptTags, t)
+		}
+	}
+	l.Tags = keptTags
+	for _, p := range l.Photos {
+		kept := p.Tags[:0]
+		for _, t := range p.Tags {
+			if !strings.EqualFold(t, tag) {
+				kept = append(kept, t)
+			}
+		}
+		p.Tags = kept
+	}
+}
+
 // AllTags returns every tag in use, learned or not.
 func (l *Library) AllTags() []string {
 	seen := map[string]bool{}

@@ -27,13 +27,14 @@ type thumbCache struct {
 	dir    string
 	notify func()
 
-	mu      sync.Mutex
-	mem     map[string]*ui.Bitmap
-	latest  map[string]latestThumb // by path and stamp
-	order   []string               // least recently used first
-	pending map[string]bool
-	jobs    chan thumbJob
-	limit   int
+	mu        sync.Mutex
+	mem       map[string]*ui.Bitmap
+	latest    map[string]latestThumb // by path and stamp
+	order     []string               // least recently used first
+	pending   map[string]bool
+	jobs      chan thumbJob
+	limit     int
+	preparing atomic.Int64
 }
 
 // thumbJob asks for one thumbnail: either to make it from the original, or
@@ -44,7 +45,9 @@ type thumbJob struct {
 	mod      int64
 	size     int
 	edit     EditState
-	loadOnly bool
+	loadOnly bool // read one already on disk instead of rendering the original
+	diskOnly bool // prewarm: only write the file, skip the bitmap
+	prewarm  bool // counted for PrewarmPending
 }
 
 // latestThumb is the last bitmap a photo got, whatever size it was made at:
@@ -140,6 +143,30 @@ func (t *thumbCache) Request(path string, mod int64, size int, st EditState) {
 	}
 	t.requestJob(job)
 }
+
+// Prewarm makes the thumbnail for a photo in the background, for a size the
+// views will ask for soon. It skips what is already cached, and never runs on
+// the UI thread: a large import is prepared while the user can keep working.
+func (t *thumbCache) Prewarm(path string, mod int64, size int, st EditState) {
+	if !uiReady.Load() {
+		return
+	}
+	key := thumbKey(path, mod, int64(size), st)
+	t.mu.Lock()
+	_, inMemory := t.mem[key]
+	if inMemory || t.pending[key] || t.onDisk(key) {
+		t.mu.Unlock()
+		return
+	}
+	t.pending[key] = true
+	t.mu.Unlock()
+	t.preparing.Add(1)
+	t.jobs <- thumbJob{key: key, path: path, mod: mod, size: size, edit: st, diskOnly: true, prewarm: true}
+}
+
+// PrewarmPending is how many prewarm thumbnails are still queued or being
+// made.
+func (t *thumbCache) PrewarmPending() int64 { return t.preparing.Load() }
 
 // onDisk reports whether a thumbnail of this key was made before.
 func (t *thumbCache) onDisk(key string) bool {
@@ -242,6 +269,9 @@ func (t *thumbCache) make(job thumbJob) {
 		t.mu.Lock()
 		delete(t.pending, job.key)
 		t.mu.Unlock()
+		if job.prewarm {
+			t.preparing.Add(-1)
+		}
 	}()
 	if job.loadOnly {
 		if !uiReady.Load() {
@@ -275,6 +305,9 @@ func (t *thumbCache) make(job thumbJob) {
 	w, h := fitSize(b.Dx(), b.Dy(), job.size, job.size)
 	small := resize(img, w, h)
 	if err := encodeJPEGFile(t.file(job.key), small, 82); err != nil {
+		return
+	}
+	if job.diskOnly {
 		return
 	}
 	if !uiReady.Load() {

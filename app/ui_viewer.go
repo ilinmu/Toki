@@ -36,7 +36,10 @@ func (a *app) openLightbox(path string) {
 	a.current = path
 	a.lightbox = true
 	a.lightZoom = 1
+	a.lightZoomShown = 1
 	a.lightX, a.lightY = 0, 0
+	a.lightXShown, a.lightYShown = 0, 0
+	a.lightAnimating = false
 	a.lightDragging = false
 	a.lightMoved = false
 	a.slideshow = false
@@ -62,7 +65,10 @@ func (a *app) openLightbox(path string) {
 func (a *app) closeLightbox() {
 	a.lightbox = false
 	a.lightZoom = 1
+	a.lightZoomShown = 1
 	a.lightX, a.lightY = 0, 0
+	a.lightXShown, a.lightYShown = 0, 0
+	a.lightAnimating = false
 	a.slideshow = false
 	a.wheelDelta = 0
 	if a.external != nil && a.current == a.external.Path {
@@ -164,6 +170,7 @@ func (a *app) viewViewer(c *ui.Context) {
 				return true
 			})
 			area.Children(func() {
+				a.animateZoom(c)
 				bmp, ready := a.lightboxBitmap(c, p, areaW, areaH)
 				if !ready {
 					ui.Box(c).Fill().Center().Children(func() {
@@ -172,11 +179,19 @@ func (a *app) viewViewer(c *ui.Context) {
 					return
 				}
 				bw, bh := bmp.Size()
-				dispW, dispH := lightboxFit(bw, bh, areaW, areaH, a.lightZoom)
+				zoom := a.lightZoomShown
+				if zoom <= 0 {
+					zoom = a.lightZoom
+				}
+				dispW, dispH := lightboxFit(bw, bh, areaW, areaH, zoom)
 				a.lightDispW, a.lightDispH = dispW, dispH
-				a.clampPan(dispW, dispH, areaW, areaH)
+				// Keep the target itself inside the photo's bounds, and draw the
+				// eased pan inside the bounds of the eased size too.
+				tw, th := lightboxFit(bw, bh, areaW, areaH, a.lightZoom)
+				a.clampPan(tw, th, areaW, areaH)
+				px, py := clampPanXY(a.lightXShown, a.lightYShown, dispW, dispH, areaW, areaH)
 				ui.Box(c).Fill().Center().Children(func() {
-					ui.Image(c, bmp).Size(dispW, dispH).Translate(float32(a.lightX), float32(a.lightY))
+					ui.Image(c, bmp).Size(dispW, dispH).Translate(float32(px), float32(py))
 				})
 			})
 			a.viewerArrow(c, icons.chevronRight, "下一张 ›", "下一张 (→)", 1)
@@ -483,6 +498,9 @@ func (a *app) lightboxInput(ev ui.InputEvent, areaW, areaH float32) bool {
 		if ev.Button != 0 {
 			return false
 		}
+		// A drag starts where the picture is, not where an easing zoom is
+		// heading.
+		a.settleZoom()
 		a.lightDragging = true
 		a.lightMoved = false
 		a.lightDragX, a.lightDragY = ev.X, ev.Y
@@ -497,6 +515,7 @@ func (a *app) lightboxInput(ev ui.InputEvent, areaW, areaH float32) bool {
 		}
 		a.lightX += float64(dx)
 		a.lightY += float64(dy)
+		a.lightXShown, a.lightYShown = a.lightX, a.lightY
 		a.lightDragX, a.lightDragY = ev.X, ev.Y
 		return true
 	case ui.InputPointerUp:
@@ -530,6 +549,18 @@ func (a *app) zoomAround(factor float64, x, y, areaW, areaH float32) {
 	}
 	if z == a.lightZoom {
 		return
+	}
+	from := a.lightZoomShown
+	if from <= 0 {
+		from = a.lightZoom
+	}
+	a.lightZoomFrom = from
+	a.lightXFrom = a.lightXShown
+	a.lightYFrom = a.lightYShown
+	a.lightAnimStart = time.Now()
+	a.lightAnimating = true
+	if a.lightAnimLength <= 0 {
+		a.lightAnimLength = 150 * time.Millisecond
 	}
 	// The pointer, relative to the middle of the area the photo fills.
 	cx := float64(x) - float64(areaW)/2
@@ -567,6 +598,49 @@ func (a *app) clampPan(dispW, dispH float32, areaW, areaH float32) {
 	maxY := float64(max(dispH-areaH, 0)) / 2
 	a.lightX = clamp(a.lightX, -maxX, maxX)
 	a.lightY = clamp(a.lightY, -maxY, maxY)
+}
+
+// clampPanXY keeps a pan inside the area for a shown size.
+func clampPanXY(x, y float64, dispW, dispH, areaW, areaH float32) (float64, float64) {
+	maxX := float64(max(dispW-areaW, 0)) / 2
+	maxY := float64(max(dispH-areaH, 0)) / 2
+	return clamp(x, -maxX, maxX), clamp(y, -maxY, maxY)
+}
+
+// settleZoom stops an easing zoom where it is, for a drag or a step.
+func (a *app) settleZoom() {
+	if !a.lightAnimating {
+		return
+	}
+	a.lightAnimating = false
+	a.lightZoom = a.lightZoomShown
+	a.lightX, a.lightY = a.lightXShown, a.lightYShown
+}
+
+// animateZoom eases the shown zoom and pan toward their targets.
+func (a *app) animateZoom(c *ui.Context) {
+	if !a.lightAnimating {
+		a.lightZoomShown = a.lightZoom
+		a.lightXShown, a.lightYShown = a.lightX, a.lightY
+		return
+	}
+	d := a.lightAnimLength
+	if d <= 0 {
+		d = 150 * time.Millisecond
+	}
+	p := float64(time.Since(a.lightAnimStart)) / float64(d)
+	if p >= 1 {
+		a.lightZoomShown = a.lightZoom
+		a.lightXShown, a.lightYShown = a.lightX, a.lightY
+		a.lightAnimating = false
+		return
+	}
+	// Ease out, so a notch starts moving at once and settles gently.
+	ease := 1 - math.Pow(1-p, 3)
+	a.lightZoomShown = a.lightZoomFrom + (a.lightZoom-a.lightZoomFrom)*ease
+	a.lightXShown = a.lightXFrom + (a.lightX-a.lightXFrom)*ease
+	a.lightYShown = a.lightYFrom + (a.lightY-a.lightYFrom)*ease
+	c.After(16 * time.Millisecond)
 }
 
 // clamp keeps v within lo..hi.

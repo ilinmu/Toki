@@ -116,6 +116,18 @@ type app struct {
 	lightDispW    float32
 	lightDispH    float32
 
+	// The zoom actually drawn, eased toward the target set by the wheel and
+	// the buttons, so a notch never snaps the picture.
+	lightZoomShown  float64
+	lightXShown     float64
+	lightYShown     float64
+	lightZoomFrom   float64
+	lightXFrom      float64
+	lightYFrom      float64
+	lightAnimStart  time.Time
+	lightAnimating  bool
+	lightAnimLength time.Duration
+
 	// The animated picture playing, if the photo shown is a GIF.
 	anim gifShow
 
@@ -164,9 +176,10 @@ type app struct {
 	wheelDelta float64
 
 	// Work in progress.
-	scanning bool
-	scanMsg  string
-	status   string
+	scanning  bool
+	scanMsg   string
+	preparing bool
+	status    string
 }
 
 // newApp makes the app with its library loaded.
@@ -628,6 +641,8 @@ func main() {
 		winReady.Store(true)
 		// Photos copied into a watched folder show up by themselves.
 		a.watchAll()
+		// Warm the thumbnails of an existing library while the window is up.
+		a.prewarm(a.lib.Snapshot())
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

@@ -237,3 +237,64 @@ func TestWatchingAddsPhotos(t *testing.T) {
 	}
 	t.Fatal("the watch did not add a photo written into the folder")
 }
+
+// TestDeletingATagRemovesItEverywhere takes a tag off every photo and out of
+// the learned vocabulary.
+func TestDeletingATagRemovesItEverywhere(t *testing.T) {
+	a := testApp(t)
+	dir := t.TempDir()
+	first := writePNG(t, dir, "one.png", 30, 20, 10)
+	second := writePNG(t, dir, "two.png", 30, 20, 80)
+	a.lib.AddFolder(dir)
+	a.scanFolder(dir, nil)
+	p1, p2 := a.lib.Get(first), a.lib.Get(second)
+	p1.Tags = []string{"咖啡", "旅行"}
+	p2.Tags = []string{"咖啡"}
+	a.lib.LearnTag("咖啡")
+	a.save()
+
+	a.deleteTag("咖啡")
+	if p1.HasTag("咖啡") || p2.HasTag("咖啡") {
+		t.Fatal("the tag is still on a photo")
+	}
+	if p1.HasTag("旅行") != true {
+		t.Fatal("deleting one tag removed another")
+	}
+	for _, tag := range a.lib.AllTags() {
+		if tag == "咖啡" {
+			t.Fatal("the deleted tag is still in the vocabulary")
+		}
+	}
+	if p1.Tags[0] != "旅行" {
+		t.Fatalf("the remaining tags are %v", p1.Tags)
+	}
+}
+
+// TestRemovingAFolderKeepsEveryFile takes a watched folder out of the library
+// without touching the files on disk.
+func TestRemovingAFolderKeepsEveryFile(t *testing.T) {
+	a := testApp(t)
+	dir := t.TempDir()
+	path := writePNG(t, dir, "kept.png", 30, 20, 10)
+	a.lib.AddFolder(dir)
+	a.scanFolder(dir, nil)
+	if len(a.lib.Snapshot()) != 1 {
+		t.Fatal("the photo was not imported")
+	}
+
+	a.nav = "folder:" + dir
+	a.removeFolder(dir)
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("removing the folder deleted the file: %v", err)
+	}
+	if len(a.lib.Snapshot()) != 0 {
+		t.Fatal("the photos are still in the library")
+	}
+	if len(a.lib.FolderList()) != 0 {
+		t.Fatal("the folder is still watched")
+	}
+	if a.nav != "all" {
+		t.Fatalf("the view stayed on the removed folder: %q", a.nav)
+	}
+}

@@ -213,9 +213,15 @@ func (a *app) sidebar(c *ui.Context) {
 					ui.Column(c).Gap(2).Children(func() {
 						for _, row := range d.tags {
 							row := row
-							if a.navButton(c, row.name, icons.tag, row.count, a.nav == "tag:"+row.name).Clicked() {
+							b := a.navButton(c, row.name, icons.tag, row.count, a.nav == "tag:"+row.name)
+							if b.Clicked() {
 								a.navigate("tag:" + row.name)
 							}
+							b.ContextMenu(func(m *ui.Menu) {
+								if m.Item("删除标签「" + row.name + "」").Chosen() {
+									a.confirmDeleteTag(row.name)
+								}
+							})
 						}
 					})
 				}
@@ -231,9 +237,15 @@ func (a *app) sidebar(c *ui.Context) {
 					ui.Column(c).Gap(2).Children(func() {
 						for _, row := range d.folders {
 							row := row
-							if a.navButton(c, filepath.Base(row.path), icons.folder, row.count, a.nav == "folder:"+row.path).Clicked() {
+							b := a.navButton(c, filepath.Base(row.path), icons.folder, row.count, a.nav == "folder:"+row.path)
+							if b.Clicked() {
 								a.navigate("folder:" + row.path)
 							}
+							b.ContextMenu(func(m *ui.Menu) {
+								if m.Item("移除文件夹「" + filepath.Base(row.path) + "」…").Chosen() {
+									a.confirmRemoveFolder(row.path)
+								}
+							})
 						}
 					})
 				}
@@ -297,6 +309,9 @@ func (a *app) statusbar(c *ui.Context) {
 		ui.Text(c, text).FontSize(12).TextColor(p.textSecondary)
 		if a.scanning {
 			ui.Textf(c, "正在扫描… %s", a.scanMsg).FontSize(12).TextColor(p.accent)
+		}
+		if a.preparing {
+			ui.Text(c, "正在后台准备缩略图…").FontSize(12).TextColor(p.accent)
 		}
 		if a.status != "" {
 			ui.Text(c, a.status).FontSize(12).TextColor(p.textDisabled).SingleLine()

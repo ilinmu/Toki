@@ -104,6 +104,34 @@ func (a *app) addFolder() {
 	a.refresh()
 }
 
+// prewarm makes the thumbnails and small previews the views will ask for, in
+// the background: an import prepares itself instead of showing placeholders
+// one by one when the user first scrolls. It skips anything already on disk.
+func (a *app) prewarm(photos []*Photo) {
+	if len(photos) == 0 || !uiReady.Load() {
+		return
+	}
+	sizes := []int{a.thumbPixels(), previewSmall}
+	go func() {
+		mygo.RunOnMain(func() {
+			a.preparing = true
+			a.refreshUI()
+		})
+		for _, p := range photos {
+			for _, size := range sizes {
+				a.thumbs.Prewarm(p.Path, p.ModUnix, size, p.Edit)
+			}
+		}
+		for a.thumbs.PrewarmPending() > 0 {
+			time.Sleep(150 * time.Millisecond)
+		}
+		mygo.RunOnMain(func() {
+			a.preparing = false
+			a.refreshUI()
+		})
+	}()
+}
+
 // refresh scans every watched folder again, without blocking the window.
 func (a *app) refresh() {
 	if a.scanning {
@@ -139,6 +167,7 @@ func (a *app) refresh() {
 		}
 		gone := a.prune()
 		a.save()
+		a.prewarm(a.lib.Snapshot())
 		mygo.RunOnMain(func() {
 			a.scanning = false
 			a.scanMsg = ""
@@ -279,6 +308,78 @@ var (
 	watched   = map[string]context.CancelFunc{}
 	watchedMu sync.Mutex
 )
+
+// confirmDeleteTag asks before a tag is taken off every photo.
+func (a *app) confirmDeleteTag(tag string) {
+	res, err := mygo.Dialog.Message(mygo.MessageOptions{
+		Type:    mygo.MessageQuestion,
+		Title:   "删除标签",
+		Message: fmt.Sprintf("删除标签「%s」？\n所有照片上的这个标签都会被移除，照片本身不会删除。", tag),
+		Buttons: []string{"删除", "取消"},
+		Parent:  a.win,
+	})
+	if err != nil || res.Button != 0 {
+		return
+	}
+	a.deleteTag(tag)
+}
+
+// deleteTag removes a tag from the library and from every photo.
+func (a *app) deleteTag(tag string) {
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return
+	}
+	a.lib.DeleteTag(tag)
+	if a.nav == "tag:"+tag {
+		a.navigate("all")
+	} else {
+		a.viewKey = ""
+	}
+	a.save()
+	a.status = "已删除标签「" + tag + "」"
+}
+
+// confirmRemoveFolder asks before a watched folder is taken out of the
+// library. It is explicit that no file is deleted.
+func (a *app) confirmRemoveFolder(dir string) {
+	res, err := mygo.Dialog.Message(mygo.MessageOptions{
+		Type:  mygo.MessageQuestion,
+		Title: "移除文件夹",
+		Message: fmt.Sprintf("把「%s」从资料库中移除？\n\n"+
+			"只会移除 Toki 里的照片记录，不会删除磁盘上的任何文件；之后可以重新导入。", filepath.Base(dir)),
+		Buttons: []string{"移除文件夹", "取消"},
+		Parent:  a.win,
+	})
+	if err != nil || res.Button != 0 {
+		return
+	}
+	a.removeFolder(dir)
+}
+
+// removeFolder stops watching a folder and forgets its photos. The files stay
+// on disk and the folder can be imported again.
+func (a *app) removeFolder(dir string) {
+	a.lib.RemoveFolder(dir)
+	a.unwatchFolder(dir)
+	if a.nav == "folder:"+dir {
+		a.navigate("all")
+	} else {
+		a.viewKey = ""
+	}
+	a.save()
+	a.status = "已移除文件夹「" + filepath.Base(dir) + "」，本地文件没有被删除"
+}
+
+// unwatchFolder stops the file watch of a folder that left the library.
+func (a *app) unwatchFolder(dir string) {
+	watchedMu.Lock()
+	defer watchedMu.Unlock()
+	if cancel, ok := watched[dir]; ok {
+		cancel()
+		delete(watched, dir)
+	}
+}
 
 // watchFolder watches a folder, so a photo copied or taken into it shows up
 // without the user asking for a scan.
