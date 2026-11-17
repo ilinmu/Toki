@@ -60,7 +60,7 @@ jobs:
         run: go tool mygo vet .
       - name: Restore staticcheck
         if: github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local/bin/staticcheck
           key: staticcheck
@@ -83,7 +83,7 @@ jobs:
 
       # Always: a secret must never land in a documentation-only commit.
       - name: Restore gitleaks
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local/bin/gitleaks
           key: gitleaks
